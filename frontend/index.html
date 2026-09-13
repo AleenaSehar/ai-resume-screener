@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Resume Screener — Antigravity</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0f;
+      --bg2: #141417;
+      --bg3: #1c1c21;
+      --border: rgba(255,255,255,0.08);
+      --border2: rgba(255,255,255,0.14);
+      --text: #f0f0f0;
+      --text2: #888;
+      --text3: #555;
+      --accent: #e8ff47;
+      --accent-dim: rgba(232,255,71,0.1);
+      --green: #3ddc84;
+      --green-dim: rgba(61,220,132,0.12);
+      --red: #ff6b6b;
+      --red-dim: rgba(255,107,107,0.12);
+      --blue: #5b9cf6;
+      --blue-dim: rgba(91,156,246,0.12);
+      --amber: #fbbf24;
+      --amber-dim: rgba(251,191,36,0.12);
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(13,13,15,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 0.5px solid var(--border);
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-logo {
+      width: 30px;
+      height: 30px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .nav-logo i { color: #000; font-size: 14px; }
+
+    .nav-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .nav-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 0.5px solid rgba(232,255,71,0.2);
+      letter-spacing: 0.06em;
+    }
+
+    /* HERO */
+    .hero {
+      text-align: center;
+      padding: 5rem 2rem 3rem;
+    }
+
+    .hero-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1.25rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-tag::before, .hero-tag::after {
+      content: '';
+      display: inline-block;
+      width: 24px;
+      height: 1px;
+      background: var(--accent);
+      opacity: 0.5;
+    }
+
+    h1 {
+      font-size: clamp(2.4rem, 5vw, 4rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    h1 span {
+      color: var(--accent);
+      position: relative;
+    }
+
+    .hero-sub {
+      font-size: 16px;
+      color: var(--text2);
+      max-width: 520px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+    }
+
+    /* MAIN LAYOUT */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+    }
+
+    /* INPUT GRID */
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 720px) {
+      .input-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      transition: border-color 0.2s;
+    }
+
+    .panel:focus-within {
+      border-color: var(--border2);
+    }
+
+    .panel-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-label i { font-size: 13px; color: var(--accent); }
+
+    textarea {
+      width: 100%;
+      min-height: 240px;
+      resize: vertical;
+      background: var(--bg3);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 12.5px;
+      line-height: 1.75;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    textarea:focus { border-color: rgba(232,255,71,0.25); }
+    textarea::placeholder { color: var(--text3); }
+
+    .demo-hint {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 8px;
+    }
+
+    .demo-hint button {
+      color: var(--blue);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    /* ANALYZE BUTTON */
+    .analyze-btn {
+      width: 100%;
+      padding: 1.1rem;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: opacity 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+
+    .analyze-btn:hover { opacity: 0.88; }
+    .analyze-btn:active { transform: scale(0.99); }
+    .analyze-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ERROR */
+    .error-box {
+      background: var(--red-dim);
+      border: 0.5px solid rgba(255,107,107,0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.875rem 1rem;
+      color: var(--red);
+      font-size: 13px;
+      display: none;
+      margin-bottom: 12px;
+      font-family: 'DM Mono', monospace;
+    }
+
+    .error-box.visible { display: flex; align-items: center; gap: 8px; }
+
+    /* LOADING */
+    .loading {
+      text-align: center;
+      padding: 4rem 1rem;
+      display: none;
+    }
+
+    .loading.visible { display: block; }
+
+    .spinner-ring {
+      width: 44px;
+      height: 44px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading p {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    /* RESULTS */
+    .results {
+      display: none;
+      animation: fadeUp 0.4s ease;
+    }
+
+    .results.visible { display: block; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* SCORE HERO */
+    .score-hero {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .score-hero { flex-direction: column; text-align: center; }
+    }
+
+    .score-ring {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 2px solid transparent;
+    }
+
+    .score-ring.high { background: var(--green-dim); border-color: rgba(61,220,132,0.3); }
+    .score-ring.mid  { background: var(--amber-dim); border-color: rgba(251,191,36,0.3); }
+    .score-ring.low  { background: var(--red-dim); border-color: rgba(255,107,107,0.3); }
+
+    .score-num {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .score-ring.high .score-num { color: var(--green); }
+    .score-ring.mid  .score-num { color: var(--amber); }
+    .score-ring.low  .score-num { color: var(--red); }
+
+    .score-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 2px;
+    }
+
+    .score-text h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.3;
+    }
+
+    .score-text p {
+      font-size: 14px;
+      color: var(--text2);
+      line-height: 1.65;
+    }
+
+    /* BREAKDOWN BARS */
+    .bars-panel {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 16px;
+    }
+
+    .bars-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text3);
+      margin-bottom: 1rem;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .bar-row:last-child { margin-bottom: 0; }
+
+    .bar-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      width: 96px;
+      flex-shrink: 0;
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 5px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      width: 0%;
+      transition: width 1.2s cubic-bezier(0.16,1,0.3,1);
+    }
+
+    .fill-green { background: var(--green); }
+    .fill-blue  { background: var(--blue); }
+    .fill-amber { background: var(--amber); }
+
+    .bar-pct {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      width: 32px;
+      text-align: right;
+    }
+
+    /* THREE COLUMN GRID */
+    .three-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 720px) {
+      .three-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+
+    .card-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-title.green { color: var(--green); }
+    .card-title.red   { color: var(--red); }
+    .card-title.blue  { color: var(--blue); }
+
+    .item-list { list-style: none; }
+
+    .item-list li {
+      font-size: 13px;
+      color: var(--text2);
+      padding: 5px 0;
+      border-bottom: 0.5px solid var(--border);
+      line-height: 1.5;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .item-list li:last-child { border-bottom: none; }
+
+    .item-list li i {
+      font-size: 12px;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+
+    .li-green { color: var(--green); }
+    .li-red   { color: var(--red); }
+    .li-blue  { color: var(--blue); }
+
+    /* SKILLS */
+    .skills-panel {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 16px;
+    }
+
+    .skills-group { margin-bottom: 1rem; }
+    .skills-group:last-child { margin-bottom: 0; }
+
+    .skills-group-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text3);
+      margin-bottom: 8px;
+    }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 0.5px solid;
+    }
+
+    .tag.match   { background: var(--green-dim); color: var(--green); border-color: rgba(61,220,132,0.25); }
+    .tag.missing { background: var(--red-dim);   color: var(--red);   border-color: rgba(255,107,107,0.25); }
+    .tag.bonus   { background: var(--blue-dim);  color: var(--blue);  border-color: rgba(91,156,246,0.25); }
+
+    /* SUMMARY */
+    .summary-panel {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+
+    .summary-panel p {
+      font-size: 14px;
+      color: var(--text2);
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="nav-logo"><i class="fa-solid fa-bolt"></i></div>
+    <span class="nav-title">Antigravity</span>
+  </div>
+  <span class="nav-badge">Resume Screener v1</span>
+</nav>
+
+<div class="hero">
+  <div class="hero-tag">AI-Powered · Built with Claude</div>
+  <h1>Screen resumes<br>with <span>precision</span></h1>
+  <p class="hero-sub">Paste any job description and resume. Get an instant AI-powered match score, skill breakdown, and actionable feedback.</p>
+</div>
+
+<div class="container">
+  <div class="input-grid">
+    <div class="panel">
+      <div class="panel-label"><i class="fa-solid fa-briefcase"></i> Job description</div>
+      <textarea id="jd" placeholder="Paste the full job description here...&#10;&#10;e.g. We are looking for a Senior Python Developer with 4+ years of experience in FastAPI, PostgreSQL, Docker..."></textarea>
+      <p class="demo-hint">No text? <button onclick="loadDemo()">Load demo data</button></p>
+    </div>
+    <div class="panel">
+      <div class="panel-label"><i class="fa-solid fa-id-card"></i> Resume</div>
+      <textarea id="resume" placeholder="Paste the candidate's resume text here...&#10;&#10;e.g. Jane Smith — Full Stack Engineer&#10;5 years exp. Python, Django, React, AWS..."></textarea>
+    </div>
+  </div>
+
+  <div class="error-box" id="error-box">
+    <i class="fa-solid fa-circle-exclamation"></i>
+    <span id="error-msg"></span>
+  </div>
+
+  <button class="analyze-btn" id="analyze-btn" onclick="analyze()">
+    <i class="fa-solid fa-chart-bar"></i>
+    Analyze match
+  </button>
+
+  <div class="loading" id="loading">
+    <div class="spinner-ring"></div>
+    <p id="loading-text">Analyzing resume…</p>
+  </div>
+
+  <div class="results" id="results"></div>
+</div>
+
+<script>
+  const API_BASE = window.API_BASE;
+
+  const loadingMessages = [
+    "Parsing job requirements…",
+    "Matching skills to JD…",
+    "Scoring experience fit…",
+    "Generating feedback…",
+  ];
+
+  let loadingInterval;
+
+  function showError(msg) {
+    const box = document.getElementById("error-box");
+    document.getElementById("error-msg").textContent = msg;
+    box.classList.add("visible");
+  }
+
+  function hideError() {
+    document.getElementById("error-box").classList.remove("visible");
+  }
+
+  function loadDemo() {
+    document.getElementById("jd").value = `Senior Backend Engineer — FinTech Startup
+
+We are seeking a Senior Backend Engineer with 4+ years of experience to join our growing team.
+
+Requirements:
+- Strong proficiency in Python (FastAPI or Django)
+- Experience with PostgreSQL and Redis
+- Docker and Kubernetes knowledge
+- Familiarity with AWS or GCP cloud services
+- RESTful API design and microservices architecture
+- Git version control
+- Bonus: experience with Celery, RabbitMQ, or Kafka
+- BSc in Computer Science or related field preferred`;
+
+    document.getElementById("resume").value = `Jane Smith
+Backend Engineer | jane@email.com | github.com/janesmith
+
+EXPERIENCE
+Senior Software Engineer — TechCorp (3 years)
+- Built REST APIs using Python + FastAPI serving 2M requests/day
+- Designed PostgreSQL schemas and optimized slow queries (60% speedup)
+- Containerized services using Docker; deployed on AWS ECS
+- Implemented Redis caching layer reducing DB load by 40%
+
+Software Engineer — Startup XYZ (1.5 years)
+- Developed Django-based web app used by 50k users
+- Worked with MySQL, integrated third-party payment APIs
+- Basic CI/CD with GitHub Actions
+
+SKILLS
+Python, FastAPI, Django, PostgreSQL, MySQL, Redis, Docker, AWS, Git, REST APIs
+
+EDUCATION
+BSc Computer Science — University of Lahore (2019)`;
+  }
+
+  async function analyze() {
+    hideError();
+    const jd = document.getElementById("jd").value.trim();
+    const resume = document.getElementById("resume").value.trim();
+
+    if (!jd || !resume) {
+      showError("Please paste both a job description and a resume.");
+      return;
+    }
+    if (jd.length < 50 || resume.length < 50) {
+      showError("Both fields need more content to analyze properly.");
+      return;
+    }
+
+    const btn = document.getElementById("analyze-btn");
+    btn.disabled = true;
+    document.getElementById("results").classList.remove("visible");
+    document.getElementById("loading").classList.add("visible");
+
+    let i = 0;
+    document.getElementById("loading-text").textContent = loadingMessages[0];
+    loadingInterval = setInterval(() => {
+      i = (i + 1) % loadingMessages.length;
+      document.getElementById("loading-text").textContent = loadingMessages[i];
+    }, 1800);
+
+    try {
+      const res = await fetch(`${API_BASE}/screen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_description: jd, resume }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Request failed");
+      }
+
+      const data = await res.json();
+      renderResults(data);
+    } catch (err) {
+      showError(`Analysis failed: ${err.message}`);
+    } finally {
+      clearInterval(loadingInterval);
+      document.getElementById("loading").classList.remove("visible");
+      btn.disabled = false;
+    }
+  }
+
+  function renderResults(r) {
+    const cls = r.score >= 70 ? "high" : r.score >= 45 ? "mid" : "low";
+    const sp = Math.round(r.skills_score);
+    const ep = Math.round(r.experience_score);
+    const edp = Math.round(r.education_score);
+
+    const matchTags = (r.matched_skills || []).map(s => `<span class="tag match">${s}</span>`).join("");
+    const missTags  = (r.missing_skills  || []).map(s => `<span class="tag missing">${s}</span>`).join("");
+    const bonTags   = (r.bonus_skills    || []).map(s => `<span class="tag bonus">${s}</span>`).join("");
+
+    const strengths   = (r.strengths   || []).map(s => `<li><i class="fa-solid fa-check li-green"></i>${s}</li>`).join("");
+    const gaps        = (r.gaps        || []).map(g => `<li><i class="fa-solid fa-xmark li-red"></i>${g}</li>`).join("");
+    const suggestions = (r.suggestions || []).map(s => `<li><i class="fa-solid fa-arrow-right li-blue"></i>${s}</li>`).join("");
+
+    document.getElementById("results").innerHTML = `
+      <div class="score-hero">
+        <div class="score-ring ${cls}">
+          <span class="score-num">${r.score}</span>
+          <span class="score-sub">/ 100</span>
+        </div>
+        <div class="score-text">
+          <h2>${r.verdict || "Analysis complete"}</h2>
+          <p>${r.verdict_detail || ""}</p>
+        </div>
+      </div>
+
+      <div class="bars-panel">
+        <p class="bars-title">Category breakdown</p>
+        <div class="bar-row">
+          <span class="bar-label">Skills</span>
+          <div class="bar-track"><div class="bar-fill fill-green" id="b-skills"></div></div>
+          <span class="bar-pct">${sp}%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Experience</span>
+          <div class="bar-track"><div class="bar-fill fill-blue" id="b-exp"></div></div>
+          <span class="bar-pct">${ep}%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Education</span>
+          <div class="bar-track"><div class="bar-fill fill-amber" id="b-edu"></div></div>
+          <span class="bar-pct">${edp}%</span>
+        </div>
+      </div>
+
+      ${matchTags || missTags || bonTags ? `
+      <div class="skills-panel">
+        ${matchTags ? `<div class="skills-group"><p class="skills-group-title">Matched skills</p><div class="tags">${matchTags}</div></div>` : ""}
+        ${missTags  ? `<div class="skills-group"><p class="skills-group-title">Missing skills</p><div class="tags">${missTags}</div></div>`  : ""}
+        ${bonTags   ? `<div class="skills-group"><p class="skills-group-title">Bonus skills</p><div class="tags">${bonTags}</div></div>`    : ""}
+      </div>` : ""}
+
+      <div class="three-grid">
+        <div class="card">
+          <div class="card-title green"><i class="fa-solid fa-thumbs-up"></i> Strengths</div>
+          <ul class="item-list">${strengths}</ul>
+        </div>
+        <div class="card">
+          <div class="card-title red"><i class="fa-solid fa-triangle-exclamation"></i> Gaps</div>
+          <ul class="item-list">${gaps}</ul>
+        </div>
+        <div class="card">
+          <div class="card-title blue"><i class="fa-solid fa-lightbulb"></i> Suggestions</div>
+          <ul class="item-list">${suggestions}</ul>
+        </div>
+      </div>
+
+      <div class="summary-panel">
+        <p>${r.summary || ""}</p>
+      </div>
+    `;
+
+    document.getElementById("results").classList.add("visible");
+
+    setTimeout(() => {
+      document.getElementById("b-skills").style.width = sp + "%";
+      document.getElementById("b-exp").style.width    = ep + "%";
+      document.getElementById("b-edu").style.width    = edp + "%";
+    }, 100);
+
+    document.getElementById("results").scrollIntoView({ behavior: "smooth" });
+  }
+</script>
+</body>
+</html>

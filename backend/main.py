@@ -6,9 +6,10 @@ from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-import anthropic
+from google import genai
+from google.genai import types
+from google.genai import errors as genai_errors
 import json
-import re
 
 app = FastAPI(title="AI Resume Screener API", version="1.0.0")
 
@@ -30,10 +31,10 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-client = anthropic.Anthropic()
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 MAX_INPUT_LENGTH = 20000
-MODEL = "claude-sonnet-5"
+MODEL = "gemini-3.5-flash"
 
 
 class ScreenRequest(BaseModel):
@@ -57,9 +58,9 @@ class ScreenResult(BaseModel):
     summary: str
 
 
-SYSTEM_PROMPT = """You are an expert technical recruiter with 15+ years of experience screening 
-candidates for software engineering and tech roles. You analyze resumes against job descriptions 
-with precision and fairness. Always return valid JSON only."""
+SYSTEM_PROMPT = """You are an expert technical recruiter with 15+ years of experience screening
+candidates for software engineering and tech roles. You analyze resumes against job descriptions
+with precision and fairness."""
 
 ANALYSIS_PROMPT = """Analyze how well this resume matches the job description.
 
@@ -69,28 +70,11 @@ JOB DESCRIPTION:
 RESUME:
 {resume}
 
-Return ONLY a valid JSON object with no markdown, no explanation, no backticks:
-{{
-  "score": <integer 0-100, overall match score>,
-  "verdict": "<one strong sentence about overall fit, 10-15 words>",
-  "verdict_detail": "<2-3 sentence nuanced explanation>",
-  "skills_score": <integer 0-100>,
-  "experience_score": <integer 0-100>,
-  "education_score": <integer 0-100>,
-  "matched_skills": ["skill1", "skill2"],
-  "missing_skills": ["skill1", "skill2"],
-  "bonus_skills": ["skill1", "skill2"],
-  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3"],
-  "gaps": ["specific gap 1", "specific gap 2"],
-  "suggestions": ["actionable suggestion 1", "actionable suggestion 2", "actionable suggestion 3"],
-  "summary": "<3-4 sentences comprehensive analysis summary>"
-}}"""
+Score the match (0-100 overall, plus skills/experience/education sub-scores), identify matched,
+missing, and bonus skills, list concrete strengths and gaps, give actionable suggestions to
+improve fit, and write a short plain-English summary."""
 
-
-def extract_json(text: str) -> dict:
-    text = text.strip()
-    text = re.sub(r"```json|```", "", text).strip()
-    return json.loads(text)
+RESPONSE_SCHEMA = ScreenResult.model_json_schema()
 
 
 @app.get("/")
@@ -121,19 +105,21 @@ def screen_resume(req: ScreenRequest, request: Request):
     prompt = ANALYSIS_PROMPT.format(jd=jd, resume=resume)
 
     try:
-        message = client.messages.create(
+        response = client.models.generate_content(
             model=MODEL,
-            max_tokens=1500,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_json_schema=RESPONSE_SCHEMA,
+            ),
         )
-        raw = message.content[0].text
-        result = extract_json(raw)
+        result = json.loads(response.text)
         return ScreenResult(**result)
 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
-    except anthropic.APIError as e:
+    except genai_errors.APIError as e:
         raise HTTPException(status_code=502, detail=f"AI API error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

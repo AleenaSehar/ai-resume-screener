@@ -10,7 +10,7 @@ pinned: false
 
 # AI Resume Screener
 
-An AI-powered resume screening tool built with **FastAPI** + **Claude API** + vanilla HTML/CSS/JS.
+An AI-powered resume screening tool built with **FastAPI** + **Google Gemini API** + vanilla HTML/CSS/JS.
 
 Paste a job description and a resume → get an instant match score, skill breakdown, strengths, gaps, and actionable feedback.
 
@@ -34,7 +34,7 @@ Paste a job description and a resume → get an instant match score, skill break
 |-----------|-----------------------------|
 | Frontend  | HTML, CSS, Vanilla JS       |
 | Backend   | Python, FastAPI             |
-| AI        | Anthropic Claude API        |
+| AI        | Google Gemini API           |
 | Infra     | Docker, Docker Compose      |
 
 ---
@@ -44,7 +44,7 @@ Paste a job description and a resume → get an instant match score, skill break
 ```
 ai-resume-screener/
 ├── backend/
-│   ├── main.py              # FastAPI app + Claude integration
+│   ├── main.py              # FastAPI app + Gemini integration
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env.example
@@ -73,7 +73,7 @@ cd ai-resume-screener
 
 ```bash
 cp backend/.env.example backend/.env
-# Edit backend/.env and add your Anthropic API key
+# Edit backend/.env and add your Gemini API key
 ```
 
 ### 3a. Run with Docker (recommended)
@@ -125,7 +125,7 @@ frontmatter specifically for this.
    ```
    (Space repos default to `main`; this repo's default branch is `master`.)
 3. In the Space's **Settings → Variables and secrets**, add:
-   - `ANTHROPIC_API_KEY` as a **Secret**
+   - `GEMINI_API_KEY` as a **Secret** (get one free, no card required, at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))
    - `ALLOWED_ORIGINS` as a **Variable**, set to your Netlify site URL once you have it (comma-separated if more than one)
 4. The Space will build and start automatically. Its URL will be `https://<your-username>-<space-name>.hf.space`.
 
@@ -178,10 +178,10 @@ Analyze how well a resume matches a job description.
 
 | Variable             | Description                                          |
 |----------------------|-------------------------------------------------------|
-| `ANTHROPIC_API_KEY`  | Your Anthropic API key                                 |
+| `GEMINI_API_KEY`     | Your Google Gemini API key                              |
 | `ALLOWED_ORIGINS`    | Comma-separated list of origins allowed to call the API |
 
-Get your key at: https://console.anthropic.com
+Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 
 ---
 
@@ -202,4 +202,4 @@ MIT — feel free to use, fork, and build on this.
 
 ---
 
-Built by [Your Name](https://github.com/YOUR_USERNAME) · Powered by [Anthropic Claude](https://anthropic.com)
+Built by [Your Name](https://github.com/YOUR_USERNAME) · Powered by [Google Gemini](https://ai.google.dev)

@@ -1,13 +1,3 @@
----
-title: AI Resume Screener API
-emoji: 🧠
-colorFrom: yellow
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # AI Resume Screener
 
 An AI-powered resume screening tool built with **FastAPI** + **Google Gemini API** + vanilla HTML/CSS/JS.
@@ -111,31 +101,32 @@ npx serve .
 
 The frontend and backend deploy separately.
 
-### Backend → Hugging Face Spaces (no credit card required)
+### Backend → Vercel (no credit card required)
 
-The repo has a root-level `Dockerfile` and Spaces metadata in this README's YAML
-frontmatter specifically for this.
+Vercel's Python runtime auto-detects FastAPI from `backend/requirements.txt` and
+`backend/main.py` — no Dockerfile or extra config needed.
 
-1. Create a free Hugging Face account, then go to [huggingface.co/new-space](https://huggingface.co/new-space).
-   Pick the **Docker** SDK, choose a Space name, and create it.
-2. Push this repo's content to the new Space's git remote:
-   ```bash
-   git remote add hf https://huggingface.co/spaces/<your-username>/<space-name>
-   git push hf master:main
-   ```
-   (Space repos default to `main`; this repo's default branch is `master`.)
-3. In the Space's **Settings → Variables and secrets**, add:
-   - `GEMINI_API_KEY` as a **Secret** (get one free, no card required, at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))
-   - `ALLOWED_ORIGINS` as a **Variable**, set to your Netlify site URL once you have it (comma-separated if more than one)
-4. The Space will build and start automatically. Its URL will be `https://<your-username>-<space-name>.hf.space`.
+1. Create a free Vercel account (GitHub sign-in works, no card needed) at
+   [vercel.com/new](https://vercel.com/new) and import the `ai-resume-screener` repo.
+2. In the import screen, set **Root Directory** to `backend`. Leave the framework
+   preset on auto-detect.
+3. Under **Environment Variables**, add:
+   - `GEMINI_API_KEY` — get one free, no card required, at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+   - `ALLOWED_ORIGINS` — your Netlify site URL once you have it (comma-separated if more than one)
+4. Deploy. The resulting URL will be `https://<project-name>.vercel.app`.
+
+> Note: the rate limiter (`slowapi`) keeps its counters in memory, which doesn't
+> persist across Vercel's serverless function instances — it still works within a
+> single warm instance but isn't a hard global cap in this deployment. Fine for a
+> personal project; revisit if this gets real traffic.
 
 An alternative `render.yaml` is also included if you'd rather use Render (requires a card on file for free-tier verification).
 
 ### Frontend → Netlify
 
-1. In `frontend/config.js`, replace `REPLACE_WITH_YOUR_RENDER_URL` with your Hugging Face Space URL from above.
+1. In `frontend/config.js`, replace `REPLACE_WITH_YOUR_RENDER_URL` with your Vercel URL from above.
 2. In Netlify, create a **New site from Git**, pointing at this repo (it will pick up `netlify.toml`, which publishes the `frontend/` folder — no build step needed).
-3. Deploy. Take the resulting Netlify URL and set it as `ALLOWED_ORIGINS` in the Space's Settings (step 3 above) — the Space restarts automatically when variables change.
+3. Deploy. Take the resulting Netlify URL and set it as `ALLOWED_ORIGINS` on the Vercel project (step 3 above), then redeploy so CORS allows it.
 
 ---
 

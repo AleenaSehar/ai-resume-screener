@@ -1,3 +1,13 @@
+---
+title: AI Resume Screener API
+emoji: 🧠
+colorFrom: yellow
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # AI Resume Screener
 
 An AI-powered resume screening tool built with **FastAPI** + **Claude API** + vanilla HTML/CSS/JS.
@@ -101,19 +111,31 @@ npx serve .
 
 The frontend and backend deploy separately.
 
-### Backend → Render
+### Backend → Hugging Face Spaces (no credit card required)
 
-1. Push this repo to GitHub.
-2. In Render, create a **New Blueprint** and point it at this repo (it will pick up `render.yaml`).
-3. Set the `ANTHROPIC_API_KEY` and `ALLOWED_ORIGINS` environment variables in the Render dashboard.
-   `ALLOWED_ORIGINS` should be your Netlify site URL (e.g. `https://your-site.netlify.app`), comma-separated if you need more than one.
-4. Deploy. Note the resulting `https://<service>.onrender.com` URL.
+The repo has a root-level `Dockerfile` and Spaces metadata in this README's YAML
+frontmatter specifically for this.
+
+1. Create a free Hugging Face account, then go to [huggingface.co/new-space](https://huggingface.co/new-space).
+   Pick the **Docker** SDK, choose a Space name, and create it.
+2. Push this repo's content to the new Space's git remote:
+   ```bash
+   git remote add hf https://huggingface.co/spaces/<your-username>/<space-name>
+   git push hf master:main
+   ```
+   (Space repos default to `main`; this repo's default branch is `master`.)
+3. In the Space's **Settings → Variables and secrets**, add:
+   - `ANTHROPIC_API_KEY` as a **Secret**
+   - `ALLOWED_ORIGINS` as a **Variable**, set to your Netlify site URL once you have it (comma-separated if more than one)
+4. The Space will build and start automatically. Its URL will be `https://<your-username>-<space-name>.hf.space`.
+
+An alternative `render.yaml` is also included if you'd rather use Render (requires a card on file for free-tier verification).
 
 ### Frontend → Netlify
 
-1. In `frontend/config.js`, replace `REPLACE_WITH_YOUR_RENDER_URL` with your Render service's hostname.
+1. In `frontend/config.js`, replace `REPLACE_WITH_YOUR_RENDER_URL` with your Hugging Face Space URL from above.
 2. In Netlify, create a **New site from Git**, pointing at this repo (it will pick up `netlify.toml`, which publishes the `frontend/` folder — no build step needed).
-3. Deploy. Take the resulting Netlify URL and set it as `ALLOWED_ORIGINS` on the Render backend (step 3 above), then redeploy the backend so CORS allows it.
+3. Deploy. Take the resulting Netlify URL and set it as `ALLOWED_ORIGINS` in the Space's Settings (step 3 above) — the Space restarts automatically when variables change.
 
 ---
 

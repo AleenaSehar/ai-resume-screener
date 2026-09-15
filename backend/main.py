@@ -1,3 +1,5 @@
+import base64
+import binascii
 import os
 
 from fastapi import FastAPI, HTTPException, Request
@@ -34,12 +36,15 @@ app.add_middleware(
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 MAX_INPUT_LENGTH = 20000
+MAX_PDF_BYTES = 2 * 1024 * 1024  # keep base64 request body well under Vercel's 4.5MB limit
 MODEL = "gemini-3.5-flash"
 
 
 class ScreenRequest(BaseModel):
     job_description: str
-    resume: str
+    resume: str | None = None
+    resume_file: str | None = None  # base64-encoded PDF (no data: URL prefix)
+    resume_file_name: str | None = None
 
 
 class ScreenResult(BaseModel):
@@ -74,6 +79,15 @@ Score the match (0-100 overall, plus skills/experience/education sub-scores), id
 missing, and bonus skills, list concrete strengths and gaps, give actionable suggestions to
 improve fit, and write a short plain-English summary."""
 
+ANALYSIS_PROMPT_PDF = """Analyze how well the attached resume (PDF) matches this job description.
+
+JOB DESCRIPTION:
+{jd}
+
+Score the match (0-100 overall, plus skills/experience/education sub-scores), identify matched,
+missing, and bonus skills, list concrete strengths and gaps, give actionable suggestions to
+improve fit, and write a short plain-English summary."""
+
 RESPONSE_SCHEMA = ScreenResult.model_json_schema()
 
 
@@ -91,23 +105,43 @@ def health():
 @limiter.limit("10/minute")
 def screen_resume(req: ScreenRequest, request: Request):
     jd = req.job_description.strip()
-    resume = req.resume.strip()
 
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job description too short")
-    if len(resume) < 50:
-        raise HTTPException(status_code=400, detail="Resume too short")
     if len(jd) > MAX_INPUT_LENGTH:
         raise HTTPException(status_code=400, detail="Job description too long")
-    if len(resume) > MAX_INPUT_LENGTH:
-        raise HTTPException(status_code=400, detail="Resume too long")
 
-    prompt = ANALYSIS_PROMPT.format(jd=jd, resume=resume)
+    has_text_resume = bool(req.resume and req.resume.strip())
+    has_pdf_resume = bool(req.resume_file)
+
+    if has_text_resume and has_pdf_resume:
+        raise HTTPException(status_code=400, detail="Provide either resume text or a resume PDF, not both")
+    if not has_text_resume and not has_pdf_resume:
+        raise HTTPException(status_code=400, detail="Resume text or a resume PDF is required")
+
+    if has_pdf_resume:
+        try:
+            pdf_bytes = base64.b64decode(req.resume_file, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid PDF file data")
+        if len(pdf_bytes) > MAX_PDF_BYTES:
+            raise HTTPException(status_code=400, detail="Resume PDF too large (max 2MB)")
+        contents = [
+            ANALYSIS_PROMPT_PDF.format(jd=jd),
+            types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+        ]
+    else:
+        resume = req.resume.strip()
+        if len(resume) < 50:
+            raise HTTPException(status_code=400, detail="Resume too short")
+        if len(resume) > MAX_INPUT_LENGTH:
+            raise HTTPException(status_code=400, detail="Resume too long")
+        contents = ANALYSIS_PROMPT.format(jd=jd, resume=resume)
 
     try:
         response = client.models.generate_content(
             model=MODEL,
-            contents=prompt,
+            contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 response_mime_type="application/json",

@@ -2,12 +2,13 @@
 
 An AI-powered resume screening tool built with **FastAPI** + **Google Gemini API** + vanilla HTML/CSS/JS.
 
-Paste a job description and a resume → get an instant match score, skill breakdown, strengths, gaps, and actionable feedback.
+Paste a job description and a resume (as text or a PDF upload) → get an instant match score, skill breakdown, strengths, gaps, and actionable feedback.
 
 ---
 
 ## Features
 
+- **Resume input as text or PDF** — paste it in, or drag-and-drop/upload a PDF (max 2MB)
 - **Match score** (0–100) with color-coded verdict
 - **Category breakdown** — skills, experience, education scores
 - **Skill tags** — matched, missing, and bonus skills
@@ -134,15 +135,29 @@ An alternative `render.yaml` is also included if you'd rather use Render (requir
 
 ### `POST /screen`
 
-Analyze how well a resume matches a job description.
+Analyze how well a resume matches a job description. Provide the resume as
+plain text **or** as a base64-encoded PDF — not both.
 
-**Request body:**
+**Request body (text resume):**
 ```json
 {
   "job_description": "string",
   "resume": "string"
 }
 ```
+
+**Request body (PDF resume):**
+```json
+{
+  "job_description": "string",
+  "resume_file": "base64-encoded PDF data, no data: URL prefix",
+  "resume_file_name": "optional original filename, e.g. resume.pdf"
+}
+```
+
+`resume_file` is capped at 2MB decoded (kept well under Vercel's 4.5MB request
+body limit once base64-encoded). Gemini reads the PDF directly — there's no
+separate text-extraction step.
 
 **Response:**
 ```json
@@ -178,7 +193,7 @@ Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 
 ## Roadmap
 
-- [ ] PDF upload support (drag & drop)
+- [x] PDF upload support (drag & drop)
 - [ ] Export results as PDF report
 - [ ] Batch screening (multiple resumes vs one JD)
 - [ ] Database storage for screening history

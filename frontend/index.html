@@ -268,7 +268,7 @@
       background: var(--accent-dim);
     }
 
-    .dropzone-empty i, .dropzone-file i {
+    .dropzone-empty i {
       font-size: 26px;
       color: var(--text3);
       margin-bottom: 10px;
@@ -301,30 +301,63 @@
 
     .dropzone-file {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 4px;
+      justify-content: center;
+      width: 100%;
+      padding: 0 1.25rem;
     }
 
-    .dropzone-file span {
+    .file-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 100%;
+      background: var(--bg2);
+      border: 0.5px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 10px 10px 10px 14px;
+    }
+
+    .file-chip > i {
+      font-size: 17px;
+      color: var(--red);
+      flex-shrink: 0;
+    }
+
+    .file-chip span {
       font-family: 'DM Mono', monospace;
       font-size: 13px;
       color: var(--text);
-      max-width: 260px;
+      max-width: 220px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     .dropzone-remove {
-      margin-top: 8px;
-      background: var(--red-dim);
-      color: var(--red);
-      border: 0.5px solid rgba(255,107,107,0.25);
-      border-radius: 20px;
-      padding: 4px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      background: var(--bg3);
+      color: var(--text2);
+      border: 0.5px solid var(--border2);
+      border-radius: 7px;
       font-size: 12px;
       cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .dropzone-remove:hover {
+      background: var(--red-dim);
+      color: var(--red);
+      border-color: rgba(255,107,107,0.35);
+    }
+
+    .dropzone-remove:active {
+      transform: scale(0.92);
     }
 
     /* ANALYZE BUTTON */
@@ -680,9 +713,11 @@
           <p class="dropzone-hint">PDF only, max 2MB</p>
         </div>
         <div class="dropzone-file" id="dropzone-file" hidden>
-          <i class="fa-solid fa-file-pdf"></i>
-          <span id="dropzone-filename"></span>
-          <button type="button" class="dropzone-remove" id="dropzone-remove" title="Remove file"><i class="fa-solid fa-xmark"></i></button>
+          <div class="file-chip">
+            <i class="fa-solid fa-file-pdf"></i>
+            <span id="dropzone-filename"></span>
+            <button type="button" class="dropzone-remove" id="dropzone-remove" title="Remove file" aria-label="Remove file"><i class="fa-solid fa-xmark"></i></button>
+          </div>
         </div>
       </div>
     </div>

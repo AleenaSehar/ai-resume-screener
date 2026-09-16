@@ -4,6 +4,9 @@ An AI-powered resume screening tool built with **FastAPI** + **Google Gemini API
 
 Paste a job description and a resume (as text or a PDF upload) → get an instant match score, skill breakdown, strengths, gaps, and actionable feedback.
 
+> New to this project? [GUIDE.md](GUIDE.md) walks through the architecture, how each
+> piece works, the deployment setup, and the roadmap in more depth than this README.
+
 ---
 
 ## Features
@@ -15,18 +18,19 @@ Paste a job description and a resume (as text or a PDF upload) → get an instan
 - **Strengths & gaps** analysis
 - **Actionable suggestions** to improve resume fit
 - **Plain-English summary** of the analysis
+- **Export the report as a PDF** — one click, generated client-side
 - Clean dark UI, fully responsive
 
 ---
 
 ## Tech Stack
 
-| Layer     | Tech                        |
-|-----------|-----------------------------|
-| Frontend  | HTML, CSS, Vanilla JS       |
-| Backend   | Python, FastAPI             |
-| AI        | Google Gemini API           |
-| Infra     | Docker, Docker Compose      |
+| Layer     | Tech                          |
+|-----------|-------------------------------|
+| Frontend  | HTML, CSS, Vanilla JS, jsPDF  |
+| Backend   | Python, FastAPI               |
+| AI        | Google Gemini API             |
+| Infra     | Docker, Docker Compose        |
 
 ---
 
@@ -46,7 +50,8 @@ ai-resume-screener/
 ├── render.yaml              # Render backend blueprint
 ├── netlify.toml             # Netlify frontend config
 ├── .gitignore
-└── README.md
+├── README.md
+└── GUIDE.md                 # Architecture, roadmap, and step-by-step walkthrough
 ```
 
 ---
@@ -194,7 +199,7 @@ Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 ## Roadmap
 
 - [x] PDF upload support (drag & drop)
-- [ ] Export results as PDF report
+- [x] Export results as PDF report
 - [ ] Batch screening (multiple resumes vs one JD)
 - [ ] Database storage for screening history
 - [ ] Auth + user accounts

@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
   <script src="config.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -431,6 +432,7 @@
     .results {
       display: none;
       animation: fadeUp 0.4s ease;
+      scroll-margin-top: 88px; /* keeps the results toolbar clear of the sticky nav on scrollIntoView */
     }
 
     .results.visible { display: block; }
@@ -439,6 +441,31 @@
       from { opacity: 0; transform: translateY(16px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
+    /* RESULTS TOOLBAR */
+    .results-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .export-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      padding: 7px 14px;
+      border-radius: 20px;
+      background: var(--blue-dim);
+      color: var(--blue);
+      border: 0.5px solid rgba(91,156,246,0.3);
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .export-btn:hover { opacity: 0.85; }
+    .export-btn:active { transform: scale(0.98); }
 
     /* SCORE HERO */
     .score-hero {
@@ -752,6 +779,7 @@
   ];
 
   let loadingInterval;
+  let lastAnalysisResult = null;
   let resumeMode = "text"; // "text" | "pdf"
   let resumeFile = null; // { name, base64 }
   const MAX_PDF_BYTES = 2 * 1024 * 1024;
@@ -927,6 +955,7 @@ BSc Computer Science — University of Lahore (2019)`;
   }
 
   function renderResults(r) {
+    lastAnalysisResult = r;
     const cls = r.score >= 70 ? "high" : r.score >= 45 ? "mid" : "low";
     const sp = Math.round(r.skills_score);
     const ep = Math.round(r.experience_score);
@@ -941,6 +970,12 @@ BSc Computer Science — University of Lahore (2019)`;
     const suggestions = (r.suggestions || []).map(s => `<li><i class="fa-solid fa-arrow-right li-blue"></i>${s}</li>`).join("");
 
     document.getElementById("results").innerHTML = `
+      <div class="results-toolbar">
+        <button type="button" class="export-btn" onclick="exportPDF()">
+          <i class="fa-solid fa-file-arrow-down"></i> Export as PDF
+        </button>
+      </div>
+
       <div class="score-hero">
         <div class="score-ring ${cls}">
           <span class="score-num">${r.score}</span>
@@ -1007,6 +1042,115 @@ BSc Computer Science — University of Lahore (2019)`;
     }, 100);
 
     document.getElementById("results").scrollIntoView({ behavior: "smooth" });
+  }
+
+  function exportPDF() {
+    if (!lastAnalysisResult || !window.jspdf) return;
+    const r = lastAnalysisResult;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 48;
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
+
+    function ensureSpace(lineHeight) {
+      if (y + lineHeight > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    }
+
+    function writeHeading(text, size) {
+      ensureSpace(size + 10);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(size);
+      doc.text(text, margin, y);
+      y += size + 8;
+      doc.setFont("helvetica", "normal");
+    }
+
+    function writeParagraph(text, size) {
+      doc.setFontSize(size);
+      doc.splitTextToSize(text, maxWidth).forEach((line) => {
+        ensureSpace(size + 4);
+        doc.text(line, margin, y);
+        y += size + 4;
+      });
+    }
+
+    function writeList(items) {
+      doc.setFontSize(10);
+      items.forEach((item) => {
+        const lines = doc.splitTextToSize(`• ${item}`, maxWidth - 10);
+        lines.forEach((line) => {
+          ensureSpace(14);
+          doc.text(line, margin, y);
+          y += 14;
+        });
+      });
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("Resume Screening Report", margin, y);
+    y += 22;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Generated ${new Date().toLocaleString()}`, margin, y);
+    doc.setTextColor(0);
+    y += 28;
+
+    writeHeading(`Match Score: ${r.score} / 100 — ${r.verdict || ""}`, 13);
+    if (r.verdict_detail) writeParagraph(r.verdict_detail, 10);
+    y += 8;
+
+    writeHeading("Category Breakdown", 12);
+    writeParagraph(
+      `Skills: ${Math.round(r.skills_score)}%    Experience: ${Math.round(r.experience_score)}%    Education: ${Math.round(r.education_score)}%`,
+      10
+    );
+    y += 8;
+
+    if ((r.matched_skills || []).length) {
+      writeHeading("Matched Skills", 12);
+      writeParagraph(r.matched_skills.join(", "), 10);
+      y += 6;
+    }
+    if ((r.missing_skills || []).length) {
+      writeHeading("Missing Skills", 12);
+      writeParagraph(r.missing_skills.join(", "), 10);
+      y += 6;
+    }
+    if ((r.bonus_skills || []).length) {
+      writeHeading("Bonus Skills", 12);
+      writeParagraph(r.bonus_skills.join(", "), 10);
+      y += 6;
+    }
+    if ((r.strengths || []).length) {
+      writeHeading("Strengths", 12);
+      writeList(r.strengths);
+      y += 6;
+    }
+    if ((r.gaps || []).length) {
+      writeHeading("Gaps", 12);
+      writeList(r.gaps);
+      y += 6;
+    }
+    if ((r.suggestions || []).length) {
+      writeHeading("Suggestions", 12);
+      writeList(r.suggestions);
+      y += 6;
+    }
+    if (r.summary) {
+      writeHeading("Summary", 12);
+      writeParagraph(r.summary, 10);
+    }
+
+    doc.save(`resume-screening-report-${Date.now()}.pdf`);
   }
 </script>
 </body>

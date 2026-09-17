@@ -6,7 +6,7 @@
 > changeset. If you're reading this and something looks out of sync with the code,
 > that's a bug in this doc — flag it.
 
-Last updated: 2026-09-17 (PDF report export)
+Last updated: 2026-09-17 (batch screening)
 
 ---
 
@@ -16,7 +16,8 @@ A single-purpose web tool: paste a job description and a resume (as text or a PD
 upload), and get back an AI-generated match analysis — a 0–100 score, a skills/
 experience/education breakdown, matched/missing/bonus skills, strengths, gaps,
 actionable suggestions, and a plain-English summary. Results can be exported as a
-PDF report.
+PDF report. Up to 5 resume PDFs can be screened against one job description at once
+in **batch mode**, producing a ranked comparison table and a combined PDF report.
 
 It's intentionally small: no database, no auth, no build step on the frontend. Two
 deployable pieces (a static frontend and a stateless API), one external dependency
@@ -102,6 +103,47 @@ This is what happens for one "Analyze match" click, end to end:
     (held in `lastAnalysisResult`) and builds a formatted PDF client-side with jsPDF
     (loaded from cdnjs), entirely in the browser. No backend involvement, no new
     request.
+
+### 3b. Batch mode walkthrough
+
+Batch mode reuses every piece above — it does not call a different backend
+endpoint or add server-side logic. The only backend-facing difference is that
+`/screen` gets called multiple times instead of once.
+
+1. **Opt in** — on the "Upload PDF" tab, a checkbox ("Screen multiple resumes, up
+   to 5") toggles `batchMode` and flips the file input to `multiple`. The dropzone
+   switches from single-file display to a running file list (`batchFiles`, each
+   entry `{ name, base64, status, error, result }`), capped client-side at
+   `MAX_BATCH_FILES = 5`.
+2. **`analyze()` branches early** — if `resumeMode === "pdf" && batchMode`, it
+   delegates to `analyzeBatch(jd)` and returns, skipping the single-resume path
+   entirely.
+3. **Sequential loop, not parallel** (`analyzeBatch`) — a plain `for` loop calls
+   `screenRequest({ job_description, resume_file, resume_file_name })` once per
+   file, one at a time, `await`ing each before starting the next. This is
+   deliberate: it was built while Gemini's free tier was under heavy load, and
+   parallel (`Promise.all`) fan-out would have made that worse. At ~20–40s per
+   call, 5 sequential calls stay comfortably under the existing 10/minute rate
+   limit (at most one request in flight, ever) — see §6's decision log.
+4. **Per-item failure isolation** — each loop iteration has its own `try/catch`.
+   One resume hitting a Gemini 503 marks just that item `error` and the loop
+   continues; it doesn't abort the batch. A progress panel
+   (`renderBatchProgress()`) shows live status per file (pending/active/done/error).
+5. **Ranked results table** (`renderBatchResults()`) — successful results sorted
+   by score descending, failed/pending ones listed after. Each row expands to the
+   *exact* same detail view as single mode: `buildResultDetailHTML(r, idPrefix)`
+   was extracted from `renderResults()` specifically so both paths render
+   identically, parameterized only by an id prefix (needed since bar-fill element
+   ids would otherwise collide across simultaneously-expanded rows). Expanded-row
+   state survives re-renders via `expandedBatchRows` (a `Set` of indices) — without
+   this, retrying a failed item would collapse whatever the user had open.
+6. **Per-item retry** (`retryBatchItem(i)`) — re-runs `screenRequest` for just one
+   file using the JD captured at batch-start (`lastBatchJD`); does not touch the
+   other candidates or re-run the whole batch.
+7. **Combined export** (`exportBatchPDF()`) — one PDF, one candidate per page
+   (`doc.addPage()` between candidates), built from the same `createPdfWriters()` /
+   `writeCandidateReport()` helpers `exportPDF()` uses — no duplicated layout code
+   between single and batch export.
 
 ---
 
@@ -201,6 +243,10 @@ The path here wasn't the first choice at every step — worth knowing if revisit
 - **PDF export is client-side (jsPDF)**, not server-generated, to avoid adding a
   backend dependency (e.g. `reportlab`/`weasyprint`) and a round-trip for something
   the browser can do entirely on its own from data it already has.
+- **Batch screening processes resumes sequentially from the browser against the
+  existing `/screen` endpoint**, not via a new server-side batch endpoint — made
+  while Gemini's free tier was visibly overloaded, specifically to avoid adding
+  concurrent load. Full reasoning in §8's roadmap entry.
 
 ---
 
@@ -233,11 +279,17 @@ Source of truth for the checklist itself is `README.md`; this section adds the
   Gemini, not text-extracted.
 - [x] **Export results as PDF report** — done. Client-side via jsPDF, one click,
   no backend involvement.
-- [ ] **Batch screening (multiple resumes vs one JD)** — not started. Would need:
-  either multiple file inputs or a multi-file drop zone, a loop on the frontend (or
-  a backend endpoint that accepts a list and processes sequentially — mind Vercel's
-  request body limit and function duration if doing this server-side), and a results
-  UI that can show/compare N analyses instead of one.
+- [x] **Batch screening (multiple resumes vs one JD)** — done. PDF-only (paste-text
+  mode stays single-resume), max 5 files, processed **sequentially from the
+  browser** against the existing `/screen` endpoint — no new backend endpoint, no
+  backend changes at all. This was a deliberate choice over a server-side batch
+  endpoint: Gemini's free tier was visibly overloaded (`503`s) while this was being
+  built, and the user explicitly asked to keep load low. A server-side batch
+  endpoint processing 5 resumes in one request would also have risked bumping into
+  Vercel's function duration at scale, and would have given no partial results
+  until the entire batch finished. The sequential client-side loop avoids both
+  problems and reuses 100% of existing validation/error-handling. See §3b for the
+  full walkthrough.
 - [ ] **Database storage for screening history** — not started. Would be the first
   feature to actually require a database and probably a rethink of "no server-side
   state" as an architectural property. Needs a persistence layer (Postgres/SQLite/etc.)
@@ -266,3 +318,22 @@ Source of truth for the checklist itself is `README.md`; this section adds the
   jsPDF integration involved fetching current docs and/or inspecting the installed
   package to confirm method signatures, because API shapes drift and guessing wrong
   wastes a debugging cycle. Keep doing this for future integrations.
+- **The network-calling function is a deliberately mockable seam.** `screenRequest()`
+  is declared as a top-level `function` (not `const`/arrow) in the main, non-module
+  `<script>` tag, which means it's reachable as `window.screenRequest`. Tests (run
+  via Playwright + a real headless Chrome, no framework installed in this repo —
+  see below) monkey-patch it to return canned results instead of depending on live
+  Gemini calls, which is what let the batch-mode loop, retry, and ranking logic get
+  verified even while the live API was actively unreliable. Keep new
+  network-calling logic behind a similarly reachable function if it needs the same
+  kind of testing.
+- **No test framework is installed.** Verification for UI changes in this project
+  has consistently meant: serve `frontend/` with `python3 -m http.server`, drive it
+  with `playwright-core` against the system's `/usr/bin/google-chrome`
+  (`chromium.launch({ executablePath: '/usr/bin/google-chrome' })`) from a
+  throwaway script in a scratch directory (never committed), and check real
+  rendered output — screenshots, extracted PDF text via `pdftotext`/`pypdf`, DOM
+  state via `page.evaluate()`. This has caught real bugs before they shipped (a
+  `[hidden]` CSS-specificity bug, a sticky-nav scroll-hiding regression, an
+  expanded-row-collapses-on-retry UX gap) — keep testing changes this way rather
+  than trusting the code by inspection alone.

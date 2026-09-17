@@ -251,6 +251,23 @@
       border-color: rgba(232,255,71,0.25);
     }
 
+    /* BATCH TOGGLE */
+    .batch-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      margin-bottom: 0.75rem;
+      cursor: pointer;
+    }
+
+    .batch-toggle input {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     /* PDF DROPZONE */
     .dropzone {
       min-height: 240px;
@@ -361,6 +378,43 @@
       transform: scale(0.92);
     }
 
+    /* MULTI-FILE LIST (batch mode) */
+    .dropzone-filelist {
+      width: 100%;
+      padding: 1rem 1.25rem;
+      text-align: left;
+    }
+
+    .filelist-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .filelist-items {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .filelist-row {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .filelist-row span {
+      flex: 1;
+      text-align: left;
+    }
+
     /* ANALYZE BUTTON */
     .analyze-btn {
       width: 100%;
@@ -426,6 +480,52 @@
       font-family: 'DM Mono', monospace;
       font-size: 13px;
       color: var(--text2);
+    }
+
+    /* BATCH PROGRESS */
+    .batch-progress {
+      display: none;
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 16px;
+    }
+
+    .batch-progress.visible { display: block; }
+
+    .batch-progress-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      margin-bottom: 12px;
+    }
+
+    .batch-progress-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .batch-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    .batch-progress-row i { width: 14px; text-align: center; flex-shrink: 0; }
+    .batch-progress-row.done i { color: var(--green); }
+    .batch-progress-row.error i { color: var(--red); }
+    .batch-progress-row.active i { color: var(--accent); }
+    .batch-progress-row.pending i { color: var(--text3); }
+
+    .batch-progress-error {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--red);
+      margin-left: auto;
     }
 
     /* RESULTS */
@@ -700,6 +800,62 @@
       color: var(--text2);
       line-height: 1.8;
     }
+
+    /* BATCH RESULTS TABLE */
+    .batch-table-wrap {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+
+    .batch-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .batch-table th {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text3);
+      text-align: left;
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .batch-table td {
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+
+    .batch-row { cursor: pointer; transition: background 0.15s; }
+    .batch-row:hover td { background: var(--bg3); }
+    .batch-row.error td { color: var(--red); }
+    .batch-row.active td { color: var(--accent); }
+    .batch-row td:last-child { text-align: right; color: var(--text3); }
+    .batch-row.expanded td:last-child i { transform: rotate(180deg); }
+    .batch-row td:last-child i { transition: transform 0.15s; display: inline-block; }
+
+    .batch-detail-row td {
+      background: var(--bg3);
+      padding: 1.5rem;
+      border-bottom: 0.5px solid var(--border);
+    }
+
+    .batch-error-detail {
+      color: var(--red);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -732,12 +888,16 @@
         <button type="button" class="resume-tab" id="tab-pdf" onclick="setResumeMode('pdf')">Upload PDF</button>
       </div>
       <textarea id="resume" placeholder="Paste the candidate's resume text here...&#10;&#10;e.g. Jane Smith — Full Stack Engineer&#10;5 years exp. Python, Django, React, AWS..."></textarea>
+      <label class="batch-toggle" id="batch-toggle" hidden>
+        <input type="checkbox" id="batch-mode-toggle" onchange="setBatchMode(this.checked)">
+        Screen multiple resumes (up to 5)
+      </label>
       <div class="dropzone" id="dropzone" hidden>
         <input type="file" id="resume-pdf-input" accept="application/pdf" hidden />
         <div class="dropzone-empty" id="dropzone-empty">
           <i class="fa-solid fa-file-pdf"></i>
           <p>Drag & drop a resume PDF here, or<br><button type="button" class="dropzone-browse" onclick="document.getElementById('resume-pdf-input').click()">browse files</button></p>
-          <p class="dropzone-hint">PDF only, max 2MB</p>
+          <p class="dropzone-hint" id="dropzone-hint">PDF only, max 2MB</p>
         </div>
         <div class="dropzone-file" id="dropzone-file" hidden>
           <div class="file-chip">
@@ -745,6 +905,13 @@
             <span id="dropzone-filename"></span>
             <button type="button" class="dropzone-remove" id="dropzone-remove" title="Remove file" aria-label="Remove file"><i class="fa-solid fa-xmark"></i></button>
           </div>
+        </div>
+        <div class="dropzone-filelist" id="dropzone-filelist" hidden>
+          <div class="filelist-header">
+            <span id="filelist-count">0 / 5 selected</span>
+            <button type="button" class="dropzone-browse" onclick="document.getElementById('resume-pdf-input').click()">add more</button>
+          </div>
+          <div class="filelist-items" id="filelist-items"></div>
         </div>
       </div>
     </div>
@@ -765,6 +932,11 @@
     <p id="loading-text">Analyzing resume…</p>
   </div>
 
+  <div class="batch-progress" id="batch-progress">
+    <p class="batch-progress-title" id="batch-progress-title"></p>
+    <div class="batch-progress-list" id="batch-progress-list"></div>
+  </div>
+
   <div class="results" id="results"></div>
 </div>
 
@@ -783,6 +955,11 @@
   let resumeMode = "text"; // "text" | "pdf"
   let resumeFile = null; // { name, base64 }
   const MAX_PDF_BYTES = 2 * 1024 * 1024;
+  let batchMode = false;
+  let batchFiles = []; // [{ name, base64, status: "pending"|"active"|"done"|"error", error, result }]
+  let lastBatchJD = "";
+  let expandedBatchRows = new Set(); // originalIndex values currently expanded, survives re-renders
+  const MAX_BATCH_FILES = 5;
 
   function setResumeMode(mode) {
     resumeMode = mode;
@@ -790,6 +967,7 @@
     document.getElementById("tab-pdf").classList.toggle("active", mode === "pdf");
     document.getElementById("resume").hidden = mode !== "text";
     document.getElementById("dropzone").hidden = mode !== "pdf";
+    document.getElementById("batch-toggle").hidden = mode !== "pdf";
     hideError();
   }
 
@@ -822,7 +1000,84 @@
     document.getElementById("dropzone-file").hidden = true;
   }
 
-  document.getElementById("resume-pdf-input").addEventListener("change", (e) => setResumeFile(e.target.files[0]));
+  function setBatchMode(isBatch) {
+    batchMode = isBatch;
+    document.getElementById("batch-mode-toggle").checked = isBatch;
+    document.getElementById("resume-pdf-input").multiple = isBatch;
+    document.getElementById("dropzone-hint").textContent = isBatch
+      ? `PDF only, max 2MB each, up to ${MAX_BATCH_FILES} files`
+      : "PDF only, max 2MB";
+    clearResumeFile();
+    clearBatchFiles();
+    hideError();
+  }
+
+  function addBatchFiles(fileList) {
+    hideError();
+    for (const file of Array.from(fileList)) {
+      if (batchFiles.length >= MAX_BATCH_FILES) {
+        showError(`You can screen up to ${MAX_BATCH_FILES} resumes at a time.`);
+        break;
+      }
+      if (file.type !== "application/pdf") {
+        showError(`"${file.name}" is not a PDF — skipped.`);
+        continue;
+      }
+      if (file.size > MAX_PDF_BYTES) {
+        showError(`"${file.name}" is too large (max 2MB) — skipped.`);
+        continue;
+      }
+      if (batchFiles.some((f) => f.name === file.name)) continue;
+
+      const entry = { name: file.name, base64: null, status: "pending", error: null, result: null };
+      batchFiles.push(entry);
+      const reader = new FileReader();
+      reader.onload = () => {
+        entry.base64 = reader.result.split(",")[1];
+      };
+      reader.onerror = () => {
+        entry.status = "error";
+        entry.error = "Couldn't read this file";
+        renderBatchFileList();
+      };
+      reader.readAsDataURL(file);
+    }
+    renderBatchFileList();
+  }
+
+  function renderBatchFileList() {
+    document.getElementById("dropzone-empty").hidden = batchFiles.length > 0;
+    document.getElementById("dropzone-filelist").hidden = batchFiles.length === 0;
+    document.getElementById("filelist-count").textContent = `${batchFiles.length} / ${MAX_BATCH_FILES} selected`;
+    document.getElementById("filelist-items").innerHTML = batchFiles
+      .map(
+        (f, i) => `
+      <div class="file-chip filelist-row">
+        <i class="fa-solid fa-file-pdf"></i>
+        <span>${f.name}</span>
+        <button type="button" class="dropzone-remove" onclick="removeBatchFile(${i})" title="Remove file" aria-label="Remove file"><i class="fa-solid fa-xmark"></i></button>
+      </div>`
+      )
+      .join("");
+  }
+
+  function removeBatchFile(i) {
+    batchFiles.splice(i, 1);
+    document.getElementById("resume-pdf-input").value = "";
+    renderBatchFileList();
+  }
+
+  function clearBatchFiles() {
+    batchFiles = [];
+    document.getElementById("resume-pdf-input").value = "";
+    renderBatchFileList();
+  }
+
+  document.getElementById("resume-pdf-input").addEventListener("change", (e) => {
+    if (batchMode) addBatchFiles(e.target.files);
+    else setResumeFile(e.target.files[0]);
+    e.target.value = "";
+  });
   document.getElementById("dropzone-remove").addEventListener("click", clearResumeFile);
 
   const dropzoneEl = document.getElementById("dropzone");
@@ -834,7 +1089,8 @@
   dropzoneEl.addEventListener("drop", (e) => {
     e.preventDefault();
     dropzoneEl.classList.remove("dragover");
-    setResumeFile(e.dataTransfer.files[0]);
+    if (batchMode) addBatchFiles(e.dataTransfer.files);
+    else setResumeFile(e.dataTransfer.files[0]);
   });
 
   function showError(msg) {
@@ -849,6 +1105,7 @@
 
   function loadDemo() {
     setResumeMode("text");
+    setBatchMode(false);
     clearResumeFile();
     document.getElementById("jd").value = `Senior Backend Engineer — FinTech Startup
 
@@ -886,6 +1143,19 @@ EDUCATION
 BSc Computer Science — University of Lahore (2019)`;
   }
 
+  async function screenRequest(requestBody) {
+    const res = await fetch(`${API_BASE}/screen`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Request failed");
+    }
+    return res.json();
+  }
+
   async function analyze() {
     hideError();
     const jd = document.getElementById("jd").value.trim();
@@ -896,6 +1166,11 @@ BSc Computer Science — University of Lahore (2019)`;
     }
     if (jd.length < 50) {
       showError("Job description needs more content to analyze properly.");
+      return;
+    }
+
+    if (resumeMode === "pdf" && batchMode) {
+      analyzeBatch(jd);
       return;
     }
 
@@ -932,18 +1207,7 @@ BSc Computer Science — University of Lahore (2019)`;
     }, 1800);
 
     try {
-      const res = await fetch(`${API_BASE}/screen`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Request failed");
-      }
-
-      const data = await res.json();
+      const data = await screenRequest(requestBody);
       renderResults(data);
     } catch (err) {
       showError(`Analysis failed: ${err.message}`);
@@ -954,8 +1218,78 @@ BSc Computer Science — University of Lahore (2019)`;
     }
   }
 
-  function renderResults(r) {
-    lastAnalysisResult = r;
+  async function analyzeBatch(jd) {
+    if (batchFiles.length === 0) {
+      showError("Please upload at least one resume PDF.");
+      return;
+    }
+    if (batchFiles.some((f) => f.base64 === null && f.status !== "error")) {
+      showError("Still reading files — try again in a moment.");
+      return;
+    }
+
+    lastBatchJD = jd;
+    expandedBatchRows.clear();
+    batchFiles.forEach((f) => {
+      f.status = "pending";
+      f.result = null;
+      f.error = null;
+    });
+
+    const btn = document.getElementById("analyze-btn");
+    btn.disabled = true;
+    document.getElementById("results").classList.remove("visible");
+    document.getElementById("results").innerHTML = "";
+    document.getElementById("batch-progress").classList.add("visible");
+    renderBatchProgress();
+
+    for (let idx = 0; idx < batchFiles.length; idx++) {
+      batchFiles[idx].status = "active";
+      renderBatchProgress();
+      try {
+        batchFiles[idx].result = await screenRequest({
+          job_description: jd,
+          resume_file: batchFiles[idx].base64,
+          resume_file_name: batchFiles[idx].name,
+        });
+        batchFiles[idx].status = "done";
+      } catch (err) {
+        batchFiles[idx].status = "error";
+        batchFiles[idx].error = err.message;
+      }
+      renderBatchProgress();
+    }
+
+    document.getElementById("batch-progress").classList.remove("visible");
+    btn.disabled = false;
+    renderBatchResults(true);
+  }
+
+  function renderBatchProgress() {
+    const total = batchFiles.length;
+    const activeIdx = batchFiles.findIndex((f) => f.status === "active");
+    document.getElementById("batch-progress-title").textContent =
+      activeIdx >= 0
+        ? `Screening ${activeIdx + 1} of ${total}: ${batchFiles[activeIdx].name}…`
+        : "Finishing up…";
+    document.getElementById("batch-progress-list").innerHTML = batchFiles
+      .map((f) => {
+        const icon =
+          f.status === "done" ? "fa-circle-check"
+          : f.status === "error" ? "fa-circle-exclamation"
+          : f.status === "active" ? "fa-spinner fa-spin"
+          : "fa-circle";
+        return `
+        <div class="batch-progress-row ${f.status}">
+          <i class="fa-solid ${icon}"></i>
+          <span>${f.name}</span>
+          ${f.status === "error" ? `<span class="batch-progress-error">${f.error}</span>` : ""}
+        </div>`;
+      })
+      .join("");
+  }
+
+  function buildResultDetailHTML(r, idPrefix = "") {
     const cls = r.score >= 70 ? "high" : r.score >= 45 ? "mid" : "low";
     const sp = Math.round(r.skills_score);
     const ep = Math.round(r.experience_score);
@@ -969,13 +1303,7 @@ BSc Computer Science — University of Lahore (2019)`;
     const gaps        = (r.gaps        || []).map(g => `<li><i class="fa-solid fa-xmark li-red"></i>${g}</li>`).join("");
     const suggestions = (r.suggestions || []).map(s => `<li><i class="fa-solid fa-arrow-right li-blue"></i>${s}</li>`).join("");
 
-    document.getElementById("results").innerHTML = `
-      <div class="results-toolbar">
-        <button type="button" class="export-btn" onclick="exportPDF()">
-          <i class="fa-solid fa-file-arrow-down"></i> Export as PDF
-        </button>
-      </div>
-
+    return `
       <div class="score-hero">
         <div class="score-ring ${cls}">
           <span class="score-num">${r.score}</span>
@@ -991,17 +1319,17 @@ BSc Computer Science — University of Lahore (2019)`;
         <p class="bars-title">Category breakdown</p>
         <div class="bar-row">
           <span class="bar-label">Skills</span>
-          <div class="bar-track"><div class="bar-fill fill-green" id="b-skills"></div></div>
+          <div class="bar-track"><div class="bar-fill fill-green" id="${idPrefix}b-skills"></div></div>
           <span class="bar-pct">${sp}%</span>
         </div>
         <div class="bar-row">
           <span class="bar-label">Experience</span>
-          <div class="bar-track"><div class="bar-fill fill-blue" id="b-exp"></div></div>
+          <div class="bar-track"><div class="bar-fill fill-blue" id="${idPrefix}b-exp"></div></div>
           <span class="bar-pct">${ep}%</span>
         </div>
         <div class="bar-row">
           <span class="bar-label">Education</span>
-          <div class="bar-track"><div class="bar-fill fill-amber" id="b-edu"></div></div>
+          <div class="bar-track"><div class="bar-fill fill-amber" id="${idPrefix}b-edu"></div></div>
           <span class="bar-pct">${edp}%</span>
         </div>
       </div>
@@ -1032,33 +1360,145 @@ BSc Computer Science — University of Lahore (2019)`;
         <p>${r.summary || ""}</p>
       </div>
     `;
+  }
+
+  function animateBars(r, idPrefix = "") {
+    document.getElementById(`${idPrefix}b-skills`).style.width = Math.round(r.skills_score) + "%";
+    document.getElementById(`${idPrefix}b-exp`).style.width    = Math.round(r.experience_score) + "%";
+    document.getElementById(`${idPrefix}b-edu`).style.width    = Math.round(r.education_score) + "%";
+  }
+
+  function renderResults(r) {
+    lastAnalysisResult = r;
+    document.getElementById("results").innerHTML = `
+      <div class="results-toolbar">
+        <button type="button" class="export-btn" onclick="exportPDF()">
+          <i class="fa-solid fa-file-arrow-down"></i> Export as PDF
+        </button>
+      </div>
+      ${buildResultDetailHTML(r)}
+    `;
 
     document.getElementById("results").classList.add("visible");
-
-    setTimeout(() => {
-      document.getElementById("b-skills").style.width = sp + "%";
-      document.getElementById("b-exp").style.width    = ep + "%";
-      document.getElementById("b-edu").style.width    = edp + "%";
-    }, 100);
-
+    setTimeout(() => animateBars(r), 100);
     document.getElementById("results").scrollIntoView({ behavior: "smooth" });
   }
 
-  function exportPDF() {
-    if (!lastAnalysisResult || !window.jspdf) return;
-    const r = lastAnalysisResult;
+  function renderBatchResults(shouldScroll = false) {
+    const withIndex = batchFiles.map((f, i) => ({ ...f, originalIndex: i }));
+    const done = withIndex.filter(f => f.status === "done").sort((a, b) => b.result.score - a.result.score);
+    const rest = withIndex.filter(f => f.status !== "done");
+    let rank = 0;
+
+    const rows = [...done, ...rest].map(item => {
+      const isDone = item.status === "done";
+      const isExpanded = expandedBatchRows.has(item.originalIndex);
+      const scoreCell = isDone ? item.result.score : "—";
+      const verdictCell = isDone
+        ? (item.result.verdict || "")
+        : item.status === "error" ? "Failed"
+        : item.status === "active" ? "Screening…" : "Pending";
+      const detail = isDone
+        ? buildResultDetailHTML(item.result, `batch-${item.originalIndex}-`)
+        : item.status === "error"
+          ? `<div class="batch-error-detail">
+               <p>${item.error || "Screening failed."}</p>
+               <button type="button" class="export-btn" onclick="event.stopPropagation(); retryBatchItem(${item.originalIndex})">
+                 <i class="fa-solid fa-rotate-right"></i> Retry
+               </button>
+             </div>`
+          : `<p class="batch-error-detail">Not screened yet.</p>`;
+      return `
+        <tr class="batch-row ${item.status}${isExpanded ? " expanded" : ""}" id="batch-row-${item.originalIndex}" onclick="toggleBatchRow(${item.originalIndex})">
+          <td>${isDone ? ++rank : "—"}</td>
+          <td>${item.name}</td>
+          <td>${scoreCell}</td>
+          <td>${verdictCell}</td>
+          <td><i class="fa-solid fa-chevron-down"></i></td>
+        </tr>
+        <tr class="batch-detail-row" id="batch-detail-row-${item.originalIndex}" ${isExpanded ? "" : "hidden"}>
+          <td colspan="5">${detail}</td>
+        </tr>`;
+    }).join("");
+
+    document.getElementById("results").innerHTML = `
+      <div class="results-toolbar">
+        <button type="button" class="export-btn" onclick="exportBatchPDF()">
+          <i class="fa-solid fa-file-arrow-down"></i> Export as PDF (all candidates)
+        </button>
+      </div>
+      <div class="batch-table-wrap">
+        <table class="batch-table">
+          <thead><tr><th>#</th><th>Candidate</th><th>Score</th><th>Verdict</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+    document.getElementById("results").classList.add("visible");
+
+    // Re-animate bars for any rows that were already expanded before this re-render
+    // (e.g. after a retry) - freshly-inserted bar-fill elements start at 0% width.
+    expandedBatchRows.forEach((idx) => {
+      const f = batchFiles[idx];
+      if (f && f.status === "done") {
+        setTimeout(() => animateBars(f.result, `batch-${idx}-`), 50);
+      }
+    });
+
+    if (shouldScroll) {
+      document.getElementById("results").scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  function toggleBatchRow(i) {
+    const row = document.getElementById(`batch-detail-row-${i}`);
+    const rowEl = document.getElementById(`batch-row-${i}`);
+    const opening = row.hidden;
+    row.hidden = !opening;
+    rowEl.classList.toggle("expanded", opening);
+    if (opening) {
+      expandedBatchRows.add(i);
+    } else {
+      expandedBatchRows.delete(i);
+    }
+    if (opening && batchFiles[i].status === "done") {
+      setTimeout(() => animateBars(batchFiles[i].result, `batch-${i}-`), 50);
+    }
+  }
+
+  async function retryBatchItem(i) {
+    const item = batchFiles[i];
+    if (!item || item.base64 === null) return;
+    item.status = "active";
+    item.error = null;
+    renderBatchResults();
+    try {
+      item.result = await screenRequest({
+        job_description: lastBatchJD,
+        resume_file: item.base64,
+        resume_file_name: item.name,
+      });
+      item.status = "done";
+    } catch (err) {
+      item.status = "error";
+      item.error = err.message;
+    }
+    renderBatchResults();
+  }
+
+  function createPdfWriters() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const pageHeight = doc.internal.pageSize.getHeight();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 48;
     const maxWidth = pageWidth - margin * 2;
-    let y = margin;
+    const state = { y: margin };
 
     function ensureSpace(lineHeight) {
-      if (y + lineHeight > pageHeight - margin) {
+      if (state.y + lineHeight > pageHeight - margin) {
         doc.addPage();
-        y = margin;
+        state.y = margin;
       }
     }
 
@@ -1066,8 +1506,8 @@ BSc Computer Science — University of Lahore (2019)`;
       ensureSpace(size + 10);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(size);
-      doc.text(text, margin, y);
-      y += size + 8;
+      doc.text(text, margin, state.y);
+      state.y += size + 8;
       doc.setFont("helvetica", "normal");
     }
 
@@ -1075,8 +1515,8 @@ BSc Computer Science — University of Lahore (2019)`;
       doc.setFontSize(size);
       doc.splitTextToSize(text, maxWidth).forEach((line) => {
         ensureSpace(size + 4);
-        doc.text(line, margin, y);
-        y += size + 4;
+        doc.text(line, margin, state.y);
+        state.y += size + 4;
       });
     }
 
@@ -1086,71 +1526,130 @@ BSc Computer Science — University of Lahore (2019)`;
         const lines = doc.splitTextToSize(`• ${item}`, maxWidth - 10);
         lines.forEach((line) => {
           ensureSpace(14);
-          doc.text(line, margin, y);
-          y += 14;
+          doc.text(line, margin, state.y);
+          state.y += 14;
         });
       });
     }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("Resume Screening Report", margin, y);
-    y += 22;
+    return {
+      doc, margin, state,
+      ensureSpace, writeHeading, writeParagraph, writeList,
+      addGap: (n) => { state.y += n; },
+    };
+  }
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(`Generated ${new Date().toLocaleString()}`, margin, y);
-    doc.setTextColor(0);
-    y += 28;
+  function writeCandidateReport(w, r, heading) {
+    w.writeHeading(heading, 13);
+    if (r.verdict_detail) w.writeParagraph(r.verdict_detail, 10);
+    w.addGap(8);
 
-    writeHeading(`Match Score: ${r.score} / 100 — ${r.verdict || ""}`, 13);
-    if (r.verdict_detail) writeParagraph(r.verdict_detail, 10);
-    y += 8;
-
-    writeHeading("Category Breakdown", 12);
-    writeParagraph(
+    w.writeHeading("Category Breakdown", 12);
+    w.writeParagraph(
       `Skills: ${Math.round(r.skills_score)}%    Experience: ${Math.round(r.experience_score)}%    Education: ${Math.round(r.education_score)}%`,
       10
     );
-    y += 8;
+    w.addGap(8);
 
     if ((r.matched_skills || []).length) {
-      writeHeading("Matched Skills", 12);
-      writeParagraph(r.matched_skills.join(", "), 10);
-      y += 6;
+      w.writeHeading("Matched Skills", 12);
+      w.writeParagraph(r.matched_skills.join(", "), 10);
+      w.addGap(6);
     }
     if ((r.missing_skills || []).length) {
-      writeHeading("Missing Skills", 12);
-      writeParagraph(r.missing_skills.join(", "), 10);
-      y += 6;
+      w.writeHeading("Missing Skills", 12);
+      w.writeParagraph(r.missing_skills.join(", "), 10);
+      w.addGap(6);
     }
     if ((r.bonus_skills || []).length) {
-      writeHeading("Bonus Skills", 12);
-      writeParagraph(r.bonus_skills.join(", "), 10);
-      y += 6;
+      w.writeHeading("Bonus Skills", 12);
+      w.writeParagraph(r.bonus_skills.join(", "), 10);
+      w.addGap(6);
     }
     if ((r.strengths || []).length) {
-      writeHeading("Strengths", 12);
-      writeList(r.strengths);
-      y += 6;
+      w.writeHeading("Strengths", 12);
+      w.writeList(r.strengths);
+      w.addGap(6);
     }
     if ((r.gaps || []).length) {
-      writeHeading("Gaps", 12);
-      writeList(r.gaps);
-      y += 6;
+      w.writeHeading("Gaps", 12);
+      w.writeList(r.gaps);
+      w.addGap(6);
     }
     if ((r.suggestions || []).length) {
-      writeHeading("Suggestions", 12);
-      writeList(r.suggestions);
-      y += 6;
+      w.writeHeading("Suggestions", 12);
+      w.writeList(r.suggestions);
+      w.addGap(6);
     }
     if (r.summary) {
-      writeHeading("Summary", 12);
-      writeParagraph(r.summary, 10);
+      w.writeHeading("Summary", 12);
+      w.writeParagraph(r.summary, 10);
     }
+  }
 
-    doc.save(`resume-screening-report-${Date.now()}.pdf`);
+  function exportPDF() {
+    if (!lastAnalysisResult || !window.jspdf) return;
+    const w = createPdfWriters();
+
+    w.doc.setFont("helvetica", "bold");
+    w.doc.setFontSize(18);
+    w.doc.text("Resume Screening Report", w.margin, w.state.y);
+    w.state.y += 22;
+
+    w.doc.setFont("helvetica", "normal");
+    w.doc.setFontSize(9);
+    w.doc.setTextColor(120);
+    w.doc.text(`Generated ${new Date().toLocaleString()}`, w.margin, w.state.y);
+    w.doc.setTextColor(0);
+    w.state.y += 28;
+
+    writeCandidateReport(
+      w,
+      lastAnalysisResult,
+      `Match Score: ${lastAnalysisResult.score} / 100 — ${lastAnalysisResult.verdict || ""}`
+    );
+
+    w.doc.save(`resume-screening-report-${Date.now()}.pdf`);
+  }
+
+  function exportBatchPDF() {
+    if (!window.jspdf) return;
+    const ranked = batchFiles.filter(f => f.status === "done").sort((a, b) => b.result.score - a.result.score);
+    if (!ranked.length) return;
+    const failed = batchFiles.filter(f => f.status === "error");
+
+    const w = createPdfWriters();
+
+    w.doc.setFont("helvetica", "bold");
+    w.doc.setFontSize(18);
+    w.doc.text("Batch Resume Screening Report", w.margin, w.state.y);
+    w.state.y += 22;
+
+    w.doc.setFont("helvetica", "normal");
+    w.doc.setFontSize(9);
+    w.doc.setTextColor(120);
+    w.doc.text(`Generated ${new Date().toLocaleString()} — ${ranked.length} candidate(s)`, w.margin, w.state.y);
+    w.doc.setTextColor(0);
+    w.state.y += 20;
+
+    if (failed.length) {
+      w.writeParagraph(`Note: ${failed.length} file(s) failed to screen and are excluded: ${failed.map(f => f.name).join(", ")}`, 9);
+    }
+    w.addGap(10);
+
+    ranked.forEach((item, i) => {
+      if (i > 0) {
+        w.doc.addPage();
+        w.state.y = w.margin;
+      }
+      writeCandidateReport(
+        w,
+        item.result,
+        `#${i + 1} — ${item.name} — Score ${item.result.score}/100 — ${item.result.verdict || ""}`
+      );
+    });
+
+    w.doc.save(`batch-screening-report-${Date.now()}.pdf`);
   }
 </script>
 </body>

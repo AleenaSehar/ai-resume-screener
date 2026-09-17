@@ -19,6 +19,7 @@ Paste a job description and a resume (as text or a PDF upload) → get an instan
 - **Actionable suggestions** to improve resume fit
 - **Plain-English summary** of the analysis
 - **Export the report as a PDF** — one click, generated client-side
+- **Batch screening** — upload up to 5 resume PDFs at once, get a ranked results table, export one combined PDF report
 - Clean dark UI, fully responsive
 
 ---
@@ -200,7 +201,7 @@ Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 
 - [x] PDF upload support (drag & drop)
 - [x] Export results as PDF report
-- [ ] Batch screening (multiple resumes vs one JD)
+- [x] Batch screening (multiple resumes vs one JD)
 - [ ] Database storage for screening history
 - [ ] Auth + user accounts
 - [ ] Chrome extension

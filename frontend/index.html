@@ -95,6 +95,29 @@
       letter-spacing: 0.06em;
     }
 
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text2);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      transition: color 0.15s;
+    }
+
+    .nav-link:hover { color: var(--text); }
+    .nav-link.active { color: var(--accent); }
+
     /* HERO */
     .hero {
       text-align: center;
@@ -856,6 +879,23 @@
       align-items: flex-start;
       font-size: 13px;
     }
+
+    /* HISTORY PANEL */
+    .history-panel {
+      margin-top: 16px;
+    }
+
+    .history-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .history-empty {
+      text-align: center;
+      color: var(--text2);
+      font-size: 13px;
+      padding: 2.5rem 0;
+    }
   </style>
 </head>
 <body>
@@ -865,7 +905,12 @@
     <div class="nav-logo"><i class="fa-solid fa-bolt"></i></div>
     <span class="nav-title">Antigravity</span>
   </div>
-  <span class="nav-badge">Resume Screener v1</span>
+  <div class="nav-right">
+    <button type="button" class="nav-link" id="nav-history-btn" onclick="toggleHistoryPanel()">
+      <i class="fa-solid fa-clock-rotate-left"></i> History
+    </button>
+    <span class="nav-badge">Resume Screener v1</span>
+  </div>
 </nav>
 
 <div class="hero">
@@ -938,10 +983,43 @@
   </div>
 
   <div class="results" id="results"></div>
+
+  <div class="history-panel results" id="history-panel" hidden>
+    <div class="results-toolbar">
+      <h2 class="history-title">Your screening history</h2>
+      <button type="button" class="export-btn" id="history-clear-btn" onclick="clearAllHistory()">
+        <i class="fa-solid fa-trash"></i> Clear all
+      </button>
+    </div>
+    <div class="batch-table-wrap">
+      <table class="batch-table" id="history-table">
+        <thead><tr><th>Date</th><th>Job description</th><th>Score</th><th>Verdict</th><th></th></tr></thead>
+        <tbody id="history-table-body"></tbody>
+      </table>
+    </div>
+    <p class="history-empty" id="history-empty" hidden></p>
+  </div>
 </div>
 
 <script>
   const API_BASE = window.API_BASE;
+
+  function getOrCreateAnonymousId() {
+    try {
+      const KEY = "resumeScreenerAnonymousId";
+      let id = localStorage.getItem(KEY);
+      if (!id) {
+        id = (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        localStorage.setItem(KEY, id);
+      }
+      return id;
+    } catch {
+      return null; // private browsing / localStorage disabled - history just won't persist
+    }
+  }
+  const ANONYMOUS_ID = getOrCreateAnonymousId();
 
   const loadingMessages = [
     "Parsing job requirements…",
@@ -1144,10 +1222,11 @@ BSc Computer Science — University of Lahore (2019)`;
   }
 
   async function screenRequest(requestBody) {
+    const body = ANONYMOUS_ID ? { ...requestBody, anonymous_id: ANONYMOUS_ID } : requestBody;
     const res = await fetch(`${API_BASE}/screen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -1484,6 +1563,92 @@ BSc Computer Science — University of Lahore (2019)`;
       item.error = err.message;
     }
     renderBatchResults();
+  }
+
+  let historyEntries = [];
+  let expandedHistoryRows = new Set();
+
+  async function loadHistoryRequest(anonymousId, limit = 20) {
+    const res = await fetch(`${API_BASE}/history?anonymous_id=${encodeURIComponent(anonymousId)}&limit=${limit}`);
+    if (!res.ok) throw new Error("Failed to load history");
+    return res.json();
+  }
+  async function deleteHistoryRequest(id, anonymousId) {
+    await fetch(`${API_BASE}/history/${id}?anonymous_id=${encodeURIComponent(anonymousId)}`, { method: "DELETE" });
+  }
+  async function clearHistoryRequest(anonymousId) {
+    await fetch(`${API_BASE}/history?anonymous_id=${encodeURIComponent(anonymousId)}`, { method: "DELETE" });
+  }
+
+  async function loadHistory() {
+    if (!ANONYMOUS_ID) {
+      historyEntries = [];
+      renderHistory("History isn't available in this browser.");
+      return;
+    }
+    try {
+      historyEntries = await loadHistoryRequest(ANONYMOUS_ID);
+    } catch {
+      historyEntries = [];
+    }
+    renderHistory(historyEntries.length ? "" : "No screenings yet — analyze a resume to start building history.");
+  }
+
+  function toggleHistoryPanel() {
+    const panel = document.getElementById("history-panel");
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    document.getElementById("nav-history-btn").classList.toggle("active", opening);
+    if (opening) {
+      loadHistory();
+      panel.classList.add("visible");
+      panel.scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  function renderHistory(emptyMsg) {
+    document.getElementById("history-empty").hidden = !emptyMsg;
+    document.getElementById("history-empty").textContent = emptyMsg || "";
+    document.getElementById("history-table-body").innerHTML = historyEntries.map(entry => {
+      const isExpanded = expandedHistoryRows.has(entry.id);
+      return `
+        <tr class="batch-row${isExpanded ? " expanded" : ""}" onclick="toggleHistoryRow(${entry.id})">
+          <td>${new Date(entry.created_at).toLocaleString()}</td>
+          <td>${entry.job_description.slice(0, 60)}${entry.job_description.length > 60 ? "…" : ""}</td>
+          <td>${entry.result.score}</td>
+          <td>${entry.result.verdict || ""}</td>
+          <td><i class="fa-solid fa-chevron-down"></i></td>
+        </tr>
+        <tr class="batch-detail-row" id="history-detail-row-${entry.id}" ${isExpanded ? "" : "hidden"}>
+          <td colspan="5">
+            ${buildResultDetailHTML(entry.result, `hist-${entry.id}-`)}
+            <button type="button" class="dropzone-remove" onclick="event.stopPropagation(); deleteHistoryEntry(${entry.id})" title="Delete" aria-label="Delete"><i class="fa-solid fa-trash"></i></button>
+          </td>
+        </tr>`;
+    }).join("");
+  }
+
+  function toggleHistoryRow(id) {
+    const row = document.getElementById(`history-detail-row-${id}`);
+    const opening = row.hidden;
+    row.hidden = !opening;
+    opening ? expandedHistoryRows.add(id) : expandedHistoryRows.delete(id);
+    if (opening) setTimeout(() => animateBars(historyEntries.find(e => e.id === id).result, `hist-${id}-`), 50);
+  }
+
+  async function deleteHistoryEntry(id) {
+    try { await deleteHistoryRequest(id, ANONYMOUS_ID); } catch {}
+    historyEntries = historyEntries.filter(e => e.id !== id);
+    expandedHistoryRows.delete(id);
+    renderHistory(historyEntries.length ? "" : "No screenings yet — analyze a resume to start building history.");
+  }
+
+  async function clearAllHistory() {
+    if (!confirm("Delete all screening history? This can't be undone.")) return;
+    try { await clearHistoryRequest(ANONYMOUS_ID); } catch {}
+    historyEntries = [];
+    expandedHistoryRows.clear();
+    renderHistory("No screenings yet — analyze a resume to start building history.");
   }
 
   function createPdfWriters() {

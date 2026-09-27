@@ -20,6 +20,7 @@ Paste a job description and a resume (as text or a PDF upload) → get an instan
 - **Plain-English summary** of the analysis
 - **Export the report as a PDF** — one click, generated client-side
 - **Batch screening** — upload up to 5 resume PDFs at once, get a ranked results table, export one combined PDF report
+- **Screening history** — every analysis is saved (per-browser, no login needed) and viewable/deletable from the History panel
 - Clean dark UI, fully responsive
 
 ---
@@ -43,6 +44,7 @@ ai-resume-screener/
 │   ├── main.py              # FastAPI app + Gemini integration
 │   ├── requirements.txt
 │   ├── Dockerfile
+│   ├── schema.sql           # One-time Postgres setup for screening history
 │   └── .env.example
 ├── frontend/
 │   ├── index.html           # Full UI
@@ -165,6 +167,10 @@ plain text **or** as a base64-encoded PDF — not both.
 body limit once base64-encoded). Gemini reads the PDF directly — there's no
 separate text-extraction step.
 
+Optionally include `"anonymous_id": "string"` to save the result to screening
+history (see below). Omit it and the request behaves exactly as before —
+nothing is saved.
+
 **Response:**
 ```json
 {
@@ -184,6 +190,23 @@ separate text-extraction step.
 }
 ```
 
+### `GET /history?anonymous_id=<id>&limit=20`
+
+Returns up to `limit` (max 50, default 20) past screenings for that
+`anonymous_id`, newest first. Returns `[]` if `DATABASE_URL` isn't configured.
+
+### `DELETE /history/{id}?anonymous_id=<id>`
+
+Deletes one screening — 404 if it doesn't belong to that `anonymous_id`.
+
+### `DELETE /history?anonymous_id=<id>`
+
+Deletes all screenings for that `anonymous_id`.
+
+> `anonymous_id` is a client-generated identifier, not an auth token — it scopes
+> history to a browser, not a verified user. See `GUIDE.md` §7 for the security
+> implications of this before relying on it for anything sensitive.
+
 ---
 
 ## Environment Variables
@@ -192,8 +215,16 @@ separate text-extraction step.
 |----------------------|-------------------------------------------------------|
 | `GEMINI_API_KEY`     | Your Google Gemini API key                              |
 | `ALLOWED_ORIGINS`    | Comma-separated list of origins allowed to call the API |
+| `DATABASE_URL`       | Optional. Postgres connection string for screening history — the app works fully without it (history just won't save) |
 
 Get a free key (no credit card required) at: https://aistudio.google.com/apikey
+
+### Setting up screening history (optional)
+
+1. Create a free Neon project at [neon.tech](https://neon.tech) — no credit card required.
+2. In Neon's Connection Details, copy the **pooled** connection string (toggle "Pooled connection" — hostname ends in `-pooler`).
+3. In Neon's SQL editor, run [`backend/schema.sql`](backend/schema.sql) once.
+4. Set `DATABASE_URL` to that pooled string — in Vercel's project settings for production, or in `backend/.env` for local dev.
 
 ---
 
@@ -202,7 +233,7 @@ Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 - [x] PDF upload support (drag & drop)
 - [x] Export results as PDF report
 - [x] Batch screening (multiple resumes vs one JD)
-- [ ] Database storage for screening history
+- [x] Database storage for screening history
 - [ ] Auth + user accounts
 - [ ] Chrome extension
 

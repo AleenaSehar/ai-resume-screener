@@ -6,7 +6,7 @@
 > changeset. If you're reading this and something looks out of sync with the code,
 > that's a bug in this doc — flag it.
 
-Last updated: 2026-09-17 (batch screening)
+Last updated: 2026-09-27 (screening history)
 
 ---
 
@@ -18,10 +18,13 @@ experience/education breakdown, matched/missing/bonus skills, strengths, gaps,
 actionable suggestions, and a plain-English summary. Results can be exported as a
 PDF report. Up to 5 resume PDFs can be screened against one job description at once
 in **batch mode**, producing a ranked comparison table and a combined PDF report.
+Every screening is saved to **history**, scoped per-browser via an anonymous
+client-generated ID (no login), viewable and deletable from a History panel.
 
-It's intentionally small: no database, no auth, no build step on the frontend. Two
-deployable pieces (a static frontend and a stateless API), one external dependency
-(Google Gemini).
+It's intentionally small: no auth, no build step on the frontend. Two deployable
+pieces (a static frontend and a stateless API), one external AI dependency (Google
+Gemini) and one optional persistence dependency (Postgres, for history only — the
+core screening feature works with zero database at all).
 
 ---
 
@@ -40,8 +43,9 @@ deployable pieces (a static frontend and a stateless API), one external dependen
 - **Frontend**: one static HTML file (`frontend/index.html`) with inline CSS/JS, plus
   `frontend/config.js` for the one environment-specific value (the backend URL). No
   npm, no bundler, no framework. Deployed to **Netlify** as a static site.
-- **Backend**: one FastAPI app (`backend/main.py`), a single real endpoint
-  (`POST /screen`). Deployed to **Vercel** as a Python serverless function — Vercel
+- **Backend**: one FastAPI app (`backend/main.py`) — the core `POST /screen`, plus
+  `GET /history`, `DELETE /history/{id}`, and `DELETE /history` for screening
+  history. Deployed to **Vercel** as a Python serverless function — Vercel
   auto-detects FastAPI from `requirements.txt` and runs `main.py` directly, no
   Dockerfile involved on that path.
 - **AI**: Google Gemini (`gemini-3.5-flash`), called via the `google-genai` SDK.
@@ -49,8 +53,11 @@ deployable pieces (a static frontend and a stateless API), one external dependen
   `ScreenResult` Pydantic model) guarantees the response matches the shape the
   frontend expects — no fragile "strip markdown fences and hope it's valid JSON"
   parsing.
-- **No database, no auth, no server-side session state.** Every request is
-  independent; nothing persists between analyses.
+- **No auth, no server-side session state.** Every request is independent — the
+  only persistence is the optional `screenings` table (Postgres/Neon), scoped by
+  a client-generated `anonymous_id`, used solely for the History feature. If
+  `DATABASE_URL` is unset, the app behaves exactly as if there were no database
+  at all: `/screen` still works, `/history` returns `[]`.
 
 Why two hosts instead of one: Netlify only serves static files — it cannot run a
 persistent/serverless Python process. Vercel could technically host both (it serves
@@ -145,16 +152,64 @@ endpoint or add server-side logic. The only backend-facing difference is that
    `writeCandidateReport()` helpers `exportPDF()` uses — no duplicated layout code
    between single and batch export.
 
+### 3c. Screening history walkthrough
+
+1. **Anonymous ID** (`getOrCreateAnonymousId()`) — on first load, generates a
+   `crypto.randomUUID()` and stores it in `localStorage`
+   (`resumeScreenerAnonymousId`); reused on every later visit. Wrapped in
+   `try/catch` — if `localStorage` throws (private browsing, disabled storage),
+   `ANONYMOUS_ID` is `null` and history silently becomes unavailable rather than
+   crashing anything.
+2. **Saved automatically, for free** — `ANONYMOUS_ID` is injected inside
+   `screenRequest()` itself (`{ ...requestBody, anonymous_id: ANONYMOUS_ID }`),
+   the single function every screening path (single, batch, retry) already
+   calls. No per-call-site plumbing needed.
+3. **Backend save** (`save_screening()` in `main.py`) — called at the end of
+   `screen_resume()`, after a successful Gemini result, right before returning
+   it. Best-effort: wrapped in `try/except Exception`, connects with
+   `connect_timeout=5` (bounds a hung connection attempt so a database outage
+   can never turn into a slow/stuck `/screen` request), and does nothing at all
+   if `anonymous_id` or `DATABASE_URL` is missing. A save failure is logged and
+   swallowed — `/screen`'s response to the user is completely unaffected either
+   way.
+4. **Viewing history** (`toggleHistoryPanel()` → `loadHistory()`) — a nav button
+   opens `#history-panel` (a sibling of `#results`, sharing its `.results` class
+   specifically to inherit `scroll-margin-top` and the `.visible` transition
+   without redefining them) and fetches `GET /history?anonymous_id=...`.
+5. **Rendering** (`renderHistory()`) — a table styled identically to the batch
+   results table (`.batch-table`), one row per screening, expandable to the
+   *exact* same `buildResultDetailHTML()` markup single mode and batch mode both
+   use — the third reuse of that function, not a new one-off view.
+   `expandedHistoryRows` (a `Set`, surviving re-renders) exists for the same
+   reason `expandedBatchRows` does: deleting an entry re-renders the whole list,
+   and without tracked state that would silently collapse whatever the user had
+   open — the same bug class caught once already in batch mode, fixed here
+   before it could be rediscovered.
+6. **Delete** (`deleteHistoryEntry()` / `clearAllHistory()`) — call
+   `DELETE /history/{id}` or `DELETE /history`, scoped by `anonymous_id` as a
+   query parameter (there's no session to derive it from). The remove button
+   reuses `.dropzone-remove` — the same bordered-square button style established
+   for "remove/delete" everywhere else in the app.
+7. **Backend read/delete endpoints** — `GET /history` returns `[]` if
+   `DATABASE_URL` is unset (a bonus panel showing "no history" rather than an
+   error when nobody configured a database), but a genuine `502` if the DB is
+   configured and unreachable (unlike `/screen`, there's no underlying core
+   feature for `/history` to protect — the request's entire job is fetching
+   history, so a real failure is worth surfacing). Both `DELETE` endpoints
+   return `404`/`503` rather than silently no-op-ing when the target row or the
+   database itself doesn't exist.
+
 ---
 
 ## 4. File-by-file reference
 
 | File | Purpose |
 |---|---|
-| `backend/main.py` | The entire API: CORS, rate limiting, request validation, the Gemini call, error handling. One file by design — small enough not to need more structure yet. |
+| `backend/main.py` | The entire API: CORS, rate limiting, request validation, the Gemini call, screening-history persistence, error handling. One file by design — small enough not to need more structure yet. |
 | `backend/requirements.txt` | Pinned dependencies. Versions matter here — see §7, the `anthropic`/`httpx` incompatibility bug is a cautionary example of why. |
+| `backend/schema.sql` | The single source of truth for the `screenings` table. Run once, manually, in Neon's SQL editor (or any Postgres) — not auto-applied on startup. README/GUIDE reference this file rather than duplicating the SQL inline. |
 | `backend/Dockerfile` | Used by `docker-compose.yml` (local dev) and by Render if you deploy there via `render.yaml`. **Not** used by the Vercel deployment path — Vercel runs `main.py` directly via its Python runtime. |
-| `backend/.env.example` | Template for local secrets. Copy to `backend/.env` (gitignored) and fill in `GEMINI_API_KEY`. |
+| `backend/.env.example` | Template for local secrets. Copy to `backend/.env` (gitignored) and fill in `GEMINI_API_KEY` (required) and `DATABASE_URL` (optional). |
 | `frontend/index.html` | The entire UI: structure, styles, and behavior in one file. No build step — edit and refresh. |
 | `frontend/config.js` | The one piece of environment-specific frontend config (`window.API_BASE`). Kept separate from `index.html` so it's a one-line edit per environment instead of hunting through the main file. |
 | `docker-compose.yml` | Local all-in-one dev environment: backend container + nginx serving `frontend/` statically. Not used in production deployment. |
@@ -202,7 +257,12 @@ automatically — no manual deploy step, no CI config needed for this.
 
 **Backend → Vercel.** Root Directory set to `backend` in the Vercel project
 settings; Vercel auto-detects FastAPI from `requirements.txt`. Env vars:
-`GEMINI_API_KEY` (secret) and `ALLOWED_ORIGINS` (the Netlify URL, so CORS allows it).
+`GEMINI_API_KEY` (secret), `ALLOWED_ORIGINS` (the Netlify URL, so CORS allows it),
+and optionally `DATABASE_URL` (Neon pooled connection string, for screening
+history — omit it and the app runs identically minus history). Setting up
+history: create a free Neon project, run `backend/schema.sql` once in its SQL
+editor, copy the pooled connection string into `DATABASE_URL`. Full steps in
+`README.md`.
 
 **Frontend → Netlify.** `netlify.toml` at the repo root publishes `frontend/`
 directly, no build command. `frontend/config.js` hardcodes the production Vercel URL
@@ -247,6 +307,38 @@ The path here wasn't the first choice at every step — worth knowing if revisit
   existing `/screen` endpoint**, not via a new server-side batch endpoint — made
   while Gemini's free tier was visibly overloaded, specifically to avoid adding
   concurrent load. Full reasoning in §8's roadmap entry.
+- **Screening history uses Neon (serverless Postgres), not Supabase/PlanetScale/
+  etc.** — verified directly (not assumed) against Neon's own pricing/docs pages:
+  free tier needs no credit card and is "permanent, not a trial" (0.5GB storage,
+  100 compute-hours/month — plenty here), and their docs explicitly cover
+  serverless-function usage (Vercel named directly): use the **pooled** connection
+  string (`-pooler` hostname suffix, via PgBouncer) instead of the direct one, to
+  avoid connection exhaustion from many short-lived function invocations each
+  opening a fresh connection. This project has been burned twice already by
+  assuming a "free tier" needed no card without checking (Render, then Hugging
+  Face Spaces) — Neon's claim was verified live before committing to it, not
+  trusted from training data.
+- **Python client is `psycopg` v3, not psycopg2, no ORM.** Confirmed installed
+  and working (`psycopg.connect()`'s sync API, and that JSONB inserts need
+  `psycopg.types.json.Jsonb(dict)` wrapping) before writing the real code — same
+  verify-before-shipping convention as every other integration in this project
+  (§9). No ORM because there are three simple queries total; SQLAlchemy would be
+  the kind of premature abstraction §9 already warns against.
+- **`connect_timeout=5` on every database connection is required, not
+  decorative.** Without a bound, a connection attempt to an unreachable host can
+  hang far longer than a request should ever take, even though the
+  `try/except` around it looks like it "handles" the failure — the exception
+  only fires once the attempt gives up. This was verified directly: pointing
+  `DATABASE_URL` at a non-routable IP and confirming `/screen` still returned a
+  full result in ~13s total (Gemini latency + a bounded ~5s DB timeout), not
+  hanging indefinitely.
+- **History-saving is best-effort; reading history is not.** `POST /screen`
+  never fails because of a database problem (there's a real feature underneath
+  it to protect). `GET /history` does return a real `502` on a genuine DB error,
+  because there's nothing else under it to protect — the whole point of the
+  request is the history data. Both behaviors were explicitly tested (unset
+  `DATABASE_URL`, unreachable `DATABASE_URL`, and a reachable one), not just
+  written and assumed correct.
 
 ---
 
@@ -255,9 +347,19 @@ The path here wasn't the first choice at every step — worth knowing if revisit
 - **Rate limiting isn't a hard global cap.** `slowapi` keeps counters in memory,
   which doesn't persist across Vercel's serverless function instances. Fine for a
   personal project; would need a shared store (Redis, etc.) under real traffic.
-- **No persistence.** Nothing is stored — refresh the page and the last analysis is
-  gone (except an exported PDF you downloaded). This is intentional for now; see the
-  roadmap.
+- **`anonymous_id` is not a security boundary.** There's no auth backing it — it's
+  a client-generated identifier a user could inspect, copy, or guess (it's a
+  UUID, so guessing is impractical, but *knowing* someone else's — e.g. shared
+  over a support channel — is enough to read or delete their history). This is
+  an accepted, deliberate property of the anonymous-ID model chosen specifically
+  to avoid building real auth right now (see §6), not an oversight. Don't rely
+  on it for anything actually sensitive; real auth (roadmap) is what would close
+  this gap properly by binding history to a verified identity instead.
+- **History storage is optional and additive, not a hard dependency.** Without
+  `DATABASE_URL` set, the app behaves exactly as it did before this feature
+  existed — nothing is stored, refresh the page and only the last *rendered*
+  analysis is gone (an exported PDF survives, since that's a local download).
+  This is a deliberate degrade-to-previous-behavior design, not a bug.
 - **Gemini free tier has occasional `503 UNAVAILABLE` ("model overloaded") errors.**
   This is Google's infrastructure, not a bug here — the app surfaces the real error
   message and the fix is just "try again." Observed directly during testing (two
@@ -290,13 +392,21 @@ Source of truth for the checklist itself is `README.md`; this section adds the
   until the entire batch finished. The sequential client-side loop avoids both
   problems and reuses 100% of existing validation/error-handling. See §3b for the
   full walkthrough.
-- [ ] **Database storage for screening history** — not started. Would be the first
-  feature to actually require a database and probably a rethink of "no server-side
-  state" as an architectural property. Needs a persistence layer (Postgres/SQLite/etc.)
-  reachable from the Vercel serverless functions — likely a hosted DB (e.g. Neon,
-  Supabase) since Vercel functions are stateless/ephemeral.
-- [ ] **Auth + user accounts** — not started. Would gate history storage per-user.
-  Bigger scope than it sounds: session/token handling, at minimum.
+- [x] **Database storage for screening history** — done. The first feature
+  requiring persistent state in this project (Neon/Postgres, `backend/schema.sql`,
+  reachable from Vercel's stateless functions via a pooled connection string).
+  Scoped per-browser via a client-generated `anonymous_id` (localStorage), not
+  real accounts — done this way specifically to avoid pulling in auth (the next
+  roadmap item) just to ship history, while staying forward-compatible: the
+  anonymous ID can be linked to a real account later instead of thrown away.
+  Saving is best-effort and never blocks `/screen`; reading/deleting history
+  fails loudly (a real `502`) since there's no core feature underneath them to
+  protect the way `/screen` protects itself. See §3c and §6.
+- [ ] **Auth + user accounts** — not started. Would upgrade history from
+  browser-scoped (`anonymous_id`, not a real security boundary — see §7) to
+  actually user-scoped, closing that gap. Bigger scope than it sounds: session/
+  token handling, at minimum, and a migration path for existing anonymous_id
+  history if it should carry over to a newly-created account.
 - [ ] **Chrome extension** — not started. Would likely reuse the existing `/screen`
   API as-is; the work is almost entirely a new frontend surface (extension popup +
   content script to pull JD text off a job posting page), not a backend change.

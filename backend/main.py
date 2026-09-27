@@ -1,6 +1,8 @@
 import base64
 import binascii
+import logging
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +13,8 @@ from slowapi.errors import RateLimitExceeded
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
+import psycopg
+from psycopg.types.json import Jsonb
 import json
 
 app = FastAPI(title="AI Resume Screener API", version="1.0.0")
@@ -35,6 +39,9 @@ app.add_middleware(
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
+logger = logging.getLogger(__name__)
+
 MAX_INPUT_LENGTH = 20000
 MAX_PDF_BYTES = 2 * 1024 * 1024  # keep base64 request body well under Vercel's 4.5MB limit
 MODEL = "gemini-3.5-flash"
@@ -45,6 +52,7 @@ class ScreenRequest(BaseModel):
     resume: str | None = None
     resume_file: str | None = None  # base64-encoded PDF (no data: URL prefix)
     resume_file_name: str | None = None
+    anonymous_id: str | None = None
 
 
 class ScreenResult(BaseModel):
@@ -61,6 +69,15 @@ class ScreenResult(BaseModel):
     gaps: list[str]
     suggestions: list[str]
     summary: str
+
+
+class HistoryEntry(BaseModel):
+    id: int
+    created_at: datetime
+    job_description: str
+    resume_text: str | None
+    resume_file_name: str | None
+    result: ScreenResult
 
 
 SYSTEM_PROMPT = """You are an expert technical recruiter with 15+ years of experience screening
@@ -91,6 +108,23 @@ improve fit, and write a short plain-English summary."""
 RESPONSE_SCHEMA = ScreenResult.model_json_schema()
 
 
+def save_screening(anonymous_id, job_description, resume_text, resume_file_name, result: ScreenResult):
+    if not anonymous_id or not DATABASE_URL:
+        return
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO screenings (anonymous_id, job_description, resume_text, resume_file_name, result)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (anonymous_id, job_description, resume_text, resume_file_name, Jsonb(result.model_dump())),
+                )
+    except Exception:
+        logger.exception("save_screening failed (non-fatal)")
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "message": "AI Resume Screener API is running"}
@@ -119,6 +153,8 @@ def screen_resume(req: ScreenRequest, request: Request):
     if not has_text_resume and not has_pdf_resume:
         raise HTTPException(status_code=400, detail="Resume text or a resume PDF is required")
 
+    resume_text_for_storage = None
+
     if has_pdf_resume:
         try:
             pdf_bytes = base64.b64decode(req.resume_file, validate=True)
@@ -136,6 +172,7 @@ def screen_resume(req: ScreenRequest, request: Request):
             raise HTTPException(status_code=400, detail="Resume too short")
         if len(resume) > MAX_INPUT_LENGTH:
             raise HTTPException(status_code=400, detail="Resume too long")
+        resume_text_for_storage = resume
         contents = ANALYSIS_PROMPT.format(jd=jd, resume=resume)
 
     try:
@@ -149,7 +186,12 @@ def screen_resume(req: ScreenRequest, request: Request):
             ),
         )
         result = json.loads(response.text)
-        return ScreenResult(**result)
+        screen_result = ScreenResult(**result)
+        save_screening(
+            req.anonymous_id, jd, resume_text_for_storage,
+            req.resume_file_name if has_pdf_resume else None, screen_result,
+        )
+        return screen_result
 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
@@ -157,3 +199,68 @@ def screen_resume(req: ScreenRequest, request: Request):
         raise HTTPException(status_code=502, detail=f"AI API error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.get("/history", response_model=list[HistoryEntry])
+@limiter.limit("30/minute")
+def get_history(anonymous_id: str, request: Request, limit: int = 20):
+    limit = max(1, min(limit, 50))
+    if not DATABASE_URL:
+        return []
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, created_at, job_description, resume_text, resume_file_name, result
+                    FROM screenings WHERE anonymous_id = %s
+                    ORDER BY created_at DESC LIMIT %s
+                    """,
+                    (anonymous_id, limit),
+                )
+                rows = cur.fetchall()
+    except Exception:
+        logger.exception("get_history failed")
+        raise HTTPException(status_code=502, detail="Could not load history right now")
+    return [
+        HistoryEntry(id=r[0], created_at=r[1], job_description=r[2], resume_text=r[3],
+                     resume_file_name=r[4], result=r[5])
+        for r in rows
+    ]
+
+
+@app.delete("/history/{screening_id}")
+@limiter.limit("20/minute")
+def delete_history_entry(screening_id: int, anonymous_id: str, request: Request):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="History storage is not configured")
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM screenings WHERE id = %s AND anonymous_id = %s",
+                    (screening_id, anonymous_id),
+                )
+                deleted = cur.rowcount
+    except Exception:
+        logger.exception("delete_history_entry failed")
+        raise HTTPException(status_code=502, detail="Could not delete this entry right now")
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"status": "deleted"}
+
+
+@app.delete("/history")
+@limiter.limit("10/minute")
+def delete_all_history(anonymous_id: str, request: Request):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="History storage is not configured")
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM screenings WHERE anonymous_id = %s", (anonymous_id,))
+                deleted = cur.rowcount
+    except Exception:
+        logger.exception("delete_all_history failed")
+        raise HTTPException(status_code=502, detail="Could not clear history right now")
+    return {"status": "deleted", "count": deleted}

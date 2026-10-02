@@ -6,7 +6,7 @@
 > changeset. If you're reading this and something looks out of sync with the code,
 > that's a bug in this doc — flag it.
 
-Last updated: 2026-09-27 (screening history)
+Last updated: 2026-10-02 (auth + user accounts)
 
 ---
 
@@ -20,11 +20,14 @@ PDF report. Up to 5 resume PDFs can be screened against one job description at o
 in **batch mode**, producing a ranked comparison table and a combined PDF report.
 Every screening is saved to **history**, scoped per-browser via an anonymous
 client-generated ID (no login), viewable and deletable from a History panel.
+Optional **email+password accounts** let someone claim that browser's history
+onto a durable login — signing in is never required to use the tool.
 
-It's intentionally small: no auth, no build step on the frontend. Two deployable
-pieces (a static frontend and a stateless API), one external AI dependency (Google
-Gemini) and one optional persistence dependency (Postgres, for history only — the
-core screening feature works with zero database at all).
+It's intentionally small: no build step on the frontend, one external AI
+dependency (Google Gemini), one optional persistence dependency (Postgres, for
+history and accounts — the core screening feature works with zero database at
+all), and auth is self-rolled on that same database rather than a third-party
+service.
 
 ---
 
@@ -43,9 +46,10 @@ core screening feature works with zero database at all).
 - **Frontend**: one static HTML file (`frontend/index.html`) with inline CSS/JS, plus
   `frontend/config.js` for the one environment-specific value (the backend URL). No
   npm, no bundler, no framework. Deployed to **Netlify** as a static site.
-- **Backend**: one FastAPI app (`backend/main.py`) — the core `POST /screen`, plus
-  `GET /history`, `DELETE /history/{id}`, and `DELETE /history` for screening
-  history. Deployed to **Vercel** as a Python serverless function — Vercel
+- **Backend**: one FastAPI app (`backend/main.py`) — the core `POST /screen`;
+  `GET /history`, `DELETE /history/{id}`, `DELETE /history` for screening
+  history; and `POST /auth/signup`, `POST /auth/login`, `GET /auth/me` for
+  accounts. Deployed to **Vercel** as a Python serverless function — Vercel
   auto-detects FastAPI from `requirements.txt` and runs `main.py` directly, no
   Dockerfile involved on that path.
 - **AI**: Google Gemini (`gemini-3.5-flash`), called via the `google-genai` SDK.
@@ -53,11 +57,15 @@ core screening feature works with zero database at all).
   `ScreenResult` Pydantic model) guarantees the response matches the shape the
   frontend expects — no fragile "strip markdown fences and hope it's valid JSON"
   parsing.
-- **No auth, no server-side session state.** Every request is independent — the
-  only persistence is the optional `screenings` table (Postgres/Neon), scoped by
-  a client-generated `anonymous_id`, used solely for the History feature. If
-  `DATABASE_URL` is unset, the app behaves exactly as if there were no database
-  at all: `/screen` still works, `/history` returns `[]`.
+- **No server-side session state, even with accounts.** Auth is JWT-based
+  (`Authorization: Bearer <token>`, verified per-request) — there's no session
+  store anywhere, consistent with every other part of this app being stateless.
+  The only persistence is Postgres/Neon: a `users` table and a `screenings`
+  table scoped by either a client-generated `anonymous_id` (no login) or a real
+  `user_id` (logged in), with `user_id` always taking priority when both are
+  present. If `DATABASE_URL` is unset, the app behaves exactly as if there were
+  no database at all: `/screen` still works, `/history` returns `[]`, and
+  `/auth/*` returns a clean `503` rather than silently doing nothing.
 
 Why two hosts instead of one: Netlify only serves static files — it cannot run a
 persistent/serverless Python process. Vercel could technically host both (it serves
@@ -199,17 +207,91 @@ endpoint or add server-side logic. The only backend-facing difference is that
    return `404`/`503` rather than silently no-op-ing when the target row or the
    database itself doesn't exist.
 
+### 3d. Auth walkthrough
+
+1. **Sign up** (`handleAuthSubmit()` → `signupRequest()`) — email + password
+   (8+ chars) via a single toggle-mode form (`#auth-panel`, no modal exists
+   anywhere in this app) shared with login. The current browser's `ANONYMOUS_ID`
+   is sent along automatically.
+2. **Backend account creation** (`signup()` in `main.py`) — hashes the password
+   with `bcrypt`, inserts the `users` row, and in the **same transaction**
+   claims any existing anonymous history: `UPDATE screenings SET user_id = %s
+   WHERE anonymous_id = %s AND user_id IS NULL`. The `user_id IS NULL` guard
+   means a row can only ever be claimed once — if this browser is reused by a
+   different account later, only still-unclaimed rows get swept up. A duplicate
+   email is a clean `409`, not a raw database error leaking to the client.
+3. **Session**: the response is `{ token, user }` — a JWT (`PyJWT`, 30-day
+   expiry, no refresh mechanism), stored in `localStorage`
+   (`resumeScreenerAuthToken`), **not** an httpOnly cookie (the frontend and
+   backend are different origins — Netlify/Vercel — so cookie auth would need
+   fragile cross-site cookie settings; this also matches the existing
+   `ANONYMOUS_ID`-in-localStorage pattern already in this codebase).
+4. **Every authenticated request** goes through `authFetch()` — a single
+   wrapper (used by `screenRequest`, and all three history network functions)
+   that attaches `Authorization: Bearer <token>` when present and, critically,
+   calls `logOut()` automatically on any `401` response. This is the frontend
+   half of the **hybrid authorization rule**: no `Authorization` header at all
+   → fully anonymous, never an error; a header that *is* present but
+   invalid/expired → always a clean `401`, everywhere (`decode_token()` in
+   `main.py` enforces the backend half). A simpler "just ignore bad tokens"
+   design was rejected because it would mean an expired token silently
+   degrading to anonymous — a user's own screenings would quietly stop being
+   saved to their account with no indication why. One consistent "your session
+   died" signal, not per-endpoint bespoke handling.
+5. **Scoping priority**: whenever both a valid token and an `anonymous_id` are
+   present, `user_id` wins for every save and every `/history*` operation —
+   `anonymous_id` is only ever the fallback for logged-out requests. `ANONYMOUS_ID`
+   keeps being generated and sent unconditionally even when logged in: it's
+   harmless (always overridden), and it's what a `/screen` call falls back to
+   if a token happens to expire mid-session on a long-lived tab, rather than
+   that save silently failing to attribute to anyone.
+6. **Session restore on load** (`restoreSession()`) — if a token exists in
+   `localStorage`, calls `GET /auth/me` through the same `authFetch()`; a `401`
+   there triggers the same silent-logout path as any other endpoint, so a
+   stale/expired token never leaves the UI looking logged-in while quietly
+   failing every real request.
+7. **Two real, pre-existing bugs were caught and fixed while building this,
+   neither found by reading the code — both found by running it:**
+   - The anonymous `GET/DELETE /history*` queries filtered only by
+     `anonymous_id`, with no `AND user_id IS NULL` guard — meaning a claimed
+     row (now owned by an account) was still visible to anyone who still had
+     the old `anonymous_id` in their browser. Caught by the exact end-to-end
+     test this feature's plan called for (claim a row, then check the old
+     anonymous path no longer returns it).
+   - CORS's `allow_methods`/`allow_headers` (set when `/screen` was the only
+     endpoint) had never been widened when the history feature added `DELETE`
+     endpoints — meaning the "Clear all"/delete-entry buttons had been
+     **silently broken in the real deployed app** since that feature shipped
+     (a real browser's preflight `OPTIONS` for `DELETE` was being rejected).
+     This had gone unnoticed because every test for that feature used `curl`
+     or a local backend directly — neither goes through browser CORS
+     enforcement at all. Fixed alongside adding `Authorization` to
+     `allow_headers` for this feature. Lesson: cross-origin behavior needs a
+     real-browser check specifically, not just a passing `curl`/local test —
+     see §9's testing conventions.
+8. **`escapeHtml()` shipped alongside this feature, not before it.** This
+   project has never had a real credential living in the browser until now;
+   the pre-existing pattern of interpolating Gemini-generated/user-originated
+   text straight into `innerHTML` (summary, verdict, skill/strength/gap text,
+   filenames) went from cosmetic to a real token-theft vector the moment a JWT
+   started living in `localStorage`. Applied in `buildResultDetailHTML`,
+   `renderBatchResults`/`renderBatchProgress`, and `renderHistory` — wrapping
+   just the string values, not a rewrite. First explicit security-regression
+   test in this project (a mocked `<img src=x onerror=...>` summary, asserted
+   to render as inert text) — worth keeping as a template for any future
+   `innerHTML`-touching feature.
+
 ---
 
 ## 4. File-by-file reference
 
 | File | Purpose |
 |---|---|
-| `backend/main.py` | The entire API: CORS, rate limiting, request validation, the Gemini call, screening-history persistence, error handling. One file by design — small enough not to need more structure yet. |
+| `backend/main.py` | The entire API: CORS, rate limiting, request validation, the Gemini call, screening-history persistence, auth (signup/login/JWT verification), error handling. One file by design — small enough not to need more structure yet. |
 | `backend/requirements.txt` | Pinned dependencies. Versions matter here — see §7, the `anthropic`/`httpx` incompatibility bug is a cautionary example of why. |
-| `backend/schema.sql` | The single source of truth for the `screenings` table. Run once, manually, in Neon's SQL editor (or any Postgres) — not auto-applied on startup. README/GUIDE reference this file rather than duplicating the SQL inline. |
+| `backend/schema.sql` | The single source of truth for the `users` and `screenings` tables. Run once, manually, in Neon's SQL editor (or any Postgres) — not auto-applied on startup. README/GUIDE reference this file rather than duplicating the SQL inline. |
 | `backend/Dockerfile` | Used by `docker-compose.yml` (local dev) and by Render if you deploy there via `render.yaml`. **Not** used by the Vercel deployment path — Vercel runs `main.py` directly via its Python runtime. |
-| `backend/.env.example` | Template for local secrets. Copy to `backend/.env` (gitignored) and fill in `GEMINI_API_KEY` (required) and `DATABASE_URL` (optional). |
+| `backend/.env.example` | Template for local secrets. Copy to `backend/.env` (gitignored) and fill in `GEMINI_API_KEY` (required), `DATABASE_URL` (optional, history), and `JWT_SECRET` (optional, accounts — requires `DATABASE_URL` too). |
 | `frontend/index.html` | The entire UI: structure, styles, and behavior in one file. No build step — edit and refresh. |
 | `frontend/config.js` | The one piece of environment-specific frontend config (`window.API_BASE`). Kept separate from `index.html` so it's a one-line edit per environment instead of hunting through the main file. |
 | `docker-compose.yml` | Local all-in-one dev environment: backend container + nginx serving `frontend/` statically. Not used in production deployment. |
@@ -258,11 +340,13 @@ automatically — no manual deploy step, no CI config needed for this.
 **Backend → Vercel.** Root Directory set to `backend` in the Vercel project
 settings; Vercel auto-detects FastAPI from `requirements.txt`. Env vars:
 `GEMINI_API_KEY` (secret), `ALLOWED_ORIGINS` (the Netlify URL, so CORS allows it),
-and optionally `DATABASE_URL` (Neon pooled connection string, for screening
-history — omit it and the app runs identically minus history). Setting up
-history: create a free Neon project, run `backend/schema.sql` once in its SQL
-editor, copy the pooled connection string into `DATABASE_URL`. Full steps in
-`README.md`.
+optionally `DATABASE_URL` (Neon pooled connection string, for screening
+history — omit it and the app runs identically minus history), and optionally
+`JWT_SECRET` (enables accounts; requires `DATABASE_URL` too — generate with
+`python -c "import secrets; print(secrets.token_hex(32))"`, at least 32 bytes
+or PyJWT warns). Setting up history: create a free Neon project, run
+`backend/schema.sql` once in its SQL editor, copy the pooled connection string
+into `DATABASE_URL`. Full steps in `README.md`.
 
 **Frontend → Netlify.** `netlify.toml` at the repo root publishes `frontend/`
 directly, no build command. `frontend/config.js` hardcodes the production Vercel URL
@@ -339,6 +423,38 @@ The path here wasn't the first choice at every step — worth knowing if revisit
   request is the history data. Both behaviors were explicitly tested (unset
   `DATABASE_URL`, unreachable `DATABASE_URL`, and a reachable one), not just
   written and assumed correct.
+- **Auth is self-rolled (bcrypt + PyJWT) on the existing stack**, not a
+  third-party service (Auth0/Clerk/Supabase Auth/etc.) and not OAuth —
+  verified both libraries' real APIs before writing code (`bcrypt.hashpw`/
+  `checkpw`, `jwt.encode`/`decode`, PyJWT's own warning about secrets under 32
+  bytes) rather than guessing. Deliberate to avoid a new external dependency
+  for a small project already running its own backend and database.
+- **JWT in `localStorage`, not an httpOnly cookie** — frontend (Netlify) and
+  backend (Vercel) are different origins, so cookie auth would need fragile
+  cross-site cookie settings (`SameSite=None; Secure`, increasingly squeezed by
+  browser third-party-cookie policy). Matches the existing `ANONYMOUS_ID`
+  pattern already in this codebase. Accepted trade-off: an XSS bug could
+  exfiltrate this token where an httpOnly cookie couldn't be read by JS at
+  all — which is exactly why `escapeHtml()` shipped in the same changeset
+  rather than as a someday-cleanup (see §3d, point 8).
+- **Hybrid authorization rule** (no header = anonymous, bad/expired header =
+  hard `401`, everywhere) over the simpler binary options. A real gap in each
+  of those is why this got the hybrid treatment: "always require a header"
+  would break the no-login requirement; "always ignore invalid headers and
+  fall back to anonymous" would mean a user's own screenings silently stop
+  attributing to their account with zero indication why, the moment their
+  token expires on a tab left open. See §3d, point 4.
+- **Login's error message is identical for "wrong password" and "no such
+  account"**, with a dummy `bcrypt` comparison run on the no-such-account path
+  specifically so the two cases can't be told apart by response timing either
+  — not just by the message text. A basic account-enumeration mitigation that
+  costs one extra hashed comparison.
+- **`screenings.anonymous_id` stays on a claimed row rather than being nulled
+  out.** Once `user_id` is set, `anonymous_id` is inert for scoping purposes
+  (checked everywhere), but keeping it lets a browser later reused by a
+  *different* account still correctly claim only the rows nobody has claimed
+  yet (`... AND user_id IS NULL` on every claim and every anonymous-path
+  query) — nulling it out would lose that history trail for no benefit.
 
 ---
 
@@ -347,25 +463,37 @@ The path here wasn't the first choice at every step — worth knowing if revisit
 - **Rate limiting isn't a hard global cap.** `slowapi` keeps counters in memory,
   which doesn't persist across Vercel's serverless function instances. Fine for a
   personal project; would need a shared store (Redis, etc.) under real traffic.
-- **`anonymous_id` is not a security boundary.** There's no auth backing it — it's
-  a client-generated identifier a user could inspect, copy, or guess (it's a
-  UUID, so guessing is impractical, but *knowing* someone else's — e.g. shared
-  over a support channel — is enough to read or delete their history). This is
-  an accepted, deliberate property of the anonymous-ID model chosen specifically
-  to avoid building real auth right now (see §6), not an oversight. Don't rely
-  on it for anything actually sensitive; real auth (roadmap) is what would close
-  this gap properly by binding history to a verified identity instead.
+- **Anonymous (logged-out) history still relies on `anonymous_id`, which is
+  not a security boundary.** It's a client-generated identifier a user could
+  inspect, copy, or guess the *presence* of (UUIDs themselves are impractical
+  to guess, but *knowing* someone else's — e.g. shared over a support channel
+  — is enough to read or delete their anonymous history). This is why accounts
+  exist now: signing up moves history to real `user_id` scoping, verified
+  against a password — don't rely on the anonymous mode for anything actually
+  sensitive.
+- **No password-reset flow.** Self-rolled email+password with no transactional
+  email provider means a forgotten password **permanently locks that account**,
+  including its claimed history — there's no recovery path today. Accepted for
+  now; would need an email provider (e.g. Resend) to fix, which is a real new
+  external dependency, not a small addition.
+- **JWTs are long-lived (30 days) with no refresh mechanism.** Simpler than
+  building refresh-token rotation for a tool this size, but it means a
+  compromised token stays valid for up to 30 days with no way to revoke it
+  short of changing `JWT_SECRET` (which logs out every account at once).
 - **History storage is optional and additive, not a hard dependency.** Without
   `DATABASE_URL` set, the app behaves exactly as it did before this feature
   existed — nothing is stored, refresh the page and only the last *rendered*
   analysis is gone (an exported PDF survives, since that's a local download).
-  This is a deliberate degrade-to-previous-behavior design, not a bug.
+  Auth requires `DATABASE_URL` too (no database, no `users` table, no accounts)
+  and degrades the same way: unset `JWT_SECRET` → `/auth/*` returns a clean
+  `503`, everything else works exactly as if accounts didn't exist.
 - **Gemini free tier has occasional `503 UNAVAILABLE` ("model overloaded") errors.**
   This is Google's infrastructure, not a bug here — the app surfaces the real error
   message and the fix is just "try again." Observed directly during testing (two
   back-to-back 503s, then a clean success on retry).
-- **No auth, no per-user anything.** Anyone with the frontend URL can use it, subject
-  to the (soft) rate limit.
+- **Accounts are optional, never required.** Anyone with the frontend URL can
+  use the tool fully anonymously, subject to the (soft) rate limit — signing up
+  only matters if you want durable, cross-browser history.
 - **Vercel Hobby plan constraints apply**: 4.5MB request body (drives the PDF size
   cap), 300s max function duration (not currently a bottleneck).
 
@@ -402,11 +530,21 @@ Source of truth for the checklist itself is `README.md`; this section adds the
   Saving is best-effort and never blocks `/screen`; reading/deleting history
   fails loudly (a real `502`) since there's no core feature underneath them to
   protect the way `/screen` protects itself. See §3c and §6.
-- [ ] **Auth + user accounts** — not started. Would upgrade history from
-  browser-scoped (`anonymous_id`, not a real security boundary — see §7) to
-  actually user-scoped, closing that gap. Bigger scope than it sounds: session/
-  token handling, at minimum, and a migration path for existing anonymous_id
-  history if it should carry over to a newly-created account.
+- [x] **Auth + user accounts** — done. Self-rolled email+password (bcrypt +
+  PyJWT) on the existing Neon database — no new external service, no OAuth.
+  Upgrades history from browser-scoped (`anonymous_id`) to real `user_id`
+  scoping, closing the "not a real security boundary" gap from the previous
+  entry, while staying fully opt-in: signing in is never required, and
+  existing anonymous history is automatically claimed onto a new account at
+  signup rather than orphaned. Accepted scope cuts, documented in §7: no
+  password-reset flow (no email provider), 30-day JWTs with no refresh. Caught
+  and fixed two real pre-existing bugs while building this (an anonymous-path
+  history-scoping gap on claimed rows, and a CORS config that had silently
+  broken the history feature's delete buttons in the real browser-deployed app
+  since that feature shipped) — see §3d.
+- [ ] **Chrome extension** — not started. Would likely reuse the existing `/screen`
+  API as-is; the work is almost entirely a new frontend surface (extension popup +
+  content script to pull JD text off a job posting page), not a backend change.
 - [ ] **Chrome extension** — not started. Would likely reuse the existing `/screen`
   API as-is; the work is almost entirely a new frontend surface (extension popup +
   content script to pull JD text off a job posting page), not a backend change.
@@ -445,5 +583,29 @@ Source of truth for the checklist itself is `README.md`; this section adds the
   rendered output — screenshots, extracted PDF text via `pdftotext`/`pypdf`, DOM
   state via `page.evaluate()`. This has caught real bugs before they shipped (a
   `[hidden]` CSS-specificity bug, a sticky-nav scroll-hiding regression, an
-  expanded-row-collapses-on-retry UX gap) — keep testing changes this way rather
-  than trusting the code by inspection alone.
+  expanded-row-collapses-on-retry UX gap, a database scoping gap on claimed
+  history rows) — keep testing changes this way rather than trusting the code
+  by inspection alone.
+- **CORS behavior specifically needs a real-browser check, not just `curl`.**
+  The history feature's `DELETE` endpoints shipped fully verified by `curl` and
+  local backend tests and were still silently broken in the actual deployed
+  app for a full feature cycle, because neither test method goes through
+  browser CORS preflight enforcement at all — only a real cross-origin
+  `fetch()` does. Caught only when auth work required re-checking
+  `allow_methods`/`allow_headers`. Any future endpoint addition (new HTTP
+  method, new required header) needs either a real-browser
+  cross-origin check or, at minimum, an explicit manual review of
+  `CORSMiddleware`'s `allow_methods`/`allow_headers` against what's actually
+  being added — don't assume existing CORS config covers a new endpoint shape.
+- **A function declared as a top-level `function` (not `const`/`let`) in this
+  project's single non-module `<script>` tag is reachable as `window.fnName`,
+  and is the deliberate pattern for anything that needs to be mockable in a
+  Playwright test** (`screenRequest`, `loadHistoryRequest`,
+  `signupRequest`/`loginRequest`, etc.) — reassigning `window.fnName` in a test
+  overrides every call site that references the bare identifier, since they
+  all resolve against the same global binding. The one place this *doesn't*
+  work: code that runs synchronously at page-load time (e.g. `restoreSession()`
+  calling `authFetch()` on load) executes *before* any `page.evaluate()`
+  injected after `page.goto()`/`page.reload()` can set up a mock — for that,
+  use Playwright's `page.route()` network interception instead (set up
+  *before* navigation), not a function override.

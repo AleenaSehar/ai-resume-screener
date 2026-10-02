@@ -896,6 +896,35 @@
       font-size: 13px;
       padding: 2.5rem 0;
     }
+
+    /* AUTH PANEL */
+    #auth-form {
+      max-width: 320px;
+      margin-top: 1rem;
+    }
+
+    #auth-form input {
+      width: 100%;
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    #auth-form input:focus {
+      outline: none;
+      border-color: rgba(232,255,71,0.25);
+    }
+
+    .error-text {
+      color: var(--red);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -909,6 +938,9 @@
     <button type="button" class="nav-link" id="nav-history-btn" onclick="toggleHistoryPanel()">
       <i class="fa-solid fa-clock-rotate-left"></i> History
     </button>
+    <span class="nav-link" id="nav-user-email" hidden></span>
+    <button type="button" class="nav-link" id="nav-auth-btn" onclick="toggleAuthPanel()">Log in</button>
+    <button type="button" class="nav-link" id="nav-logout-btn" onclick="logOut()" hidden>Log out</button>
     <span class="nav-badge">Resume Screener v1</span>
   </div>
 </nav>
@@ -999,10 +1031,27 @@
     </div>
     <p class="history-empty" id="history-empty" hidden></p>
   </div>
+
+  <div class="history-panel results" id="auth-panel" hidden>
+    <h2 class="history-title" id="auth-panel-title">Log in</h2>
+    <form id="auth-form" onsubmit="return handleAuthSubmit(event)">
+      <input type="email" id="auth-email" placeholder="Email" required>
+      <input type="password" id="auth-password" placeholder="Password" required>
+      <p class="error-text" id="auth-error" hidden></p>
+      <button type="submit" class="export-btn" id="auth-submit-btn">Log in</button>
+    </form>
+    <p class="history-empty" id="auth-toggle-mode">Don't have an account? <a href="#" onclick="setAuthMode('signup'); return false;">Sign up</a></p>
+  </div>
 </div>
 
 <script>
   const API_BASE = window.API_BASE;
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str ?? "";
+    return div.innerHTML;
+  }
 
   function getOrCreateAnonymousId() {
     try {
@@ -1020,6 +1069,37 @@
     }
   }
   const ANONYMOUS_ID = getOrCreateAnonymousId();
+
+  function getAuthToken() {
+    try { return localStorage.getItem("resumeScreenerAuthToken"); } catch { return null; }
+  }
+  function setAuthToken(token) {
+    try {
+      if (token) localStorage.setItem("resumeScreenerAuthToken", token);
+      else localStorage.removeItem("resumeScreenerAuthToken");
+    } catch {}
+  }
+  let AUTH_TOKEN = getAuthToken();
+  let CURRENT_USER = null; // { id, email }, populated by restoreSession()
+
+  function logOut() {
+    setAuthToken(null);
+    AUTH_TOKEN = null;
+    CURRENT_USER = null;
+    updateAuthUI();
+  }
+
+  async function restoreSession() {
+    if (!AUTH_TOKEN) { updateAuthUI(); return; }
+    try {
+      const res = await authFetch(`${API_BASE}/auth/me`);
+      if (res.ok) CURRENT_USER = await res.json();
+      // a non-401 failure (network hiccup) is left alone - authFetch already
+      // logs out on 401; don't flash to "logged out" on a transient error.
+    } catch {}
+    updateAuthUI();
+  }
+  restoreSession();
 
   const loadingMessages = [
     "Parsing job requirements…",
@@ -1221,9 +1301,18 @@ EDUCATION
 BSc Computer Science — University of Lahore (2019)`;
   }
 
+  function buildAuthHeaders(base = {}) {
+    return AUTH_TOKEN ? { ...base, Authorization: `Bearer ${AUTH_TOKEN}` } : base;
+  }
+  async function authFetch(url, options = {}) {
+    const res = await fetch(url, { ...options, headers: buildAuthHeaders(options.headers || {}) });
+    if (res.status === 401 && AUTH_TOKEN) logOut();
+    return res;
+  }
+
   async function screenRequest(requestBody) {
     const body = ANONYMOUS_ID ? { ...requestBody, anonymous_id: ANONYMOUS_ID } : requestBody;
-    const res = await fetch(`${API_BASE}/screen`, {
+    const res = await authFetch(`${API_BASE}/screen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1361,8 +1450,8 @@ BSc Computer Science — University of Lahore (2019)`;
         return `
         <div class="batch-progress-row ${f.status}">
           <i class="fa-solid ${icon}"></i>
-          <span>${f.name}</span>
-          ${f.status === "error" ? `<span class="batch-progress-error">${f.error}</span>` : ""}
+          <span>${escapeHtml(f.name)}</span>
+          ${f.status === "error" ? `<span class="batch-progress-error">${escapeHtml(f.error)}</span>` : ""}
         </div>`;
       })
       .join("");
@@ -1374,13 +1463,13 @@ BSc Computer Science — University of Lahore (2019)`;
     const ep = Math.round(r.experience_score);
     const edp = Math.round(r.education_score);
 
-    const matchTags = (r.matched_skills || []).map(s => `<span class="tag match">${s}</span>`).join("");
-    const missTags  = (r.missing_skills  || []).map(s => `<span class="tag missing">${s}</span>`).join("");
-    const bonTags   = (r.bonus_skills    || []).map(s => `<span class="tag bonus">${s}</span>`).join("");
+    const matchTags = (r.matched_skills || []).map(s => `<span class="tag match">${escapeHtml(s)}</span>`).join("");
+    const missTags  = (r.missing_skills  || []).map(s => `<span class="tag missing">${escapeHtml(s)}</span>`).join("");
+    const bonTags   = (r.bonus_skills    || []).map(s => `<span class="tag bonus">${escapeHtml(s)}</span>`).join("");
 
-    const strengths   = (r.strengths   || []).map(s => `<li><i class="fa-solid fa-check li-green"></i>${s}</li>`).join("");
-    const gaps        = (r.gaps        || []).map(g => `<li><i class="fa-solid fa-xmark li-red"></i>${g}</li>`).join("");
-    const suggestions = (r.suggestions || []).map(s => `<li><i class="fa-solid fa-arrow-right li-blue"></i>${s}</li>`).join("");
+    const strengths   = (r.strengths   || []).map(s => `<li><i class="fa-solid fa-check li-green"></i>${escapeHtml(s)}</li>`).join("");
+    const gaps        = (r.gaps        || []).map(g => `<li><i class="fa-solid fa-xmark li-red"></i>${escapeHtml(g)}</li>`).join("");
+    const suggestions = (r.suggestions || []).map(s => `<li><i class="fa-solid fa-arrow-right li-blue"></i>${escapeHtml(s)}</li>`).join("");
 
     return `
       <div class="score-hero">
@@ -1389,8 +1478,8 @@ BSc Computer Science — University of Lahore (2019)`;
           <span class="score-sub">/ 100</span>
         </div>
         <div class="score-text">
-          <h2>${r.verdict || "Analysis complete"}</h2>
-          <p>${r.verdict_detail || ""}</p>
+          <h2>${escapeHtml(r.verdict) || "Analysis complete"}</h2>
+          <p>${escapeHtml(r.verdict_detail)}</p>
         </div>
       </div>
 
@@ -1436,7 +1525,7 @@ BSc Computer Science — University of Lahore (2019)`;
       </div>
 
       <div class="summary-panel">
-        <p>${r.summary || ""}</p>
+        <p>${escapeHtml(r.summary)}</p>
       </div>
     `;
   }
@@ -1474,14 +1563,14 @@ BSc Computer Science — University of Lahore (2019)`;
       const isExpanded = expandedBatchRows.has(item.originalIndex);
       const scoreCell = isDone ? item.result.score : "—";
       const verdictCell = isDone
-        ? (item.result.verdict || "")
+        ? escapeHtml(item.result.verdict)
         : item.status === "error" ? "Failed"
         : item.status === "active" ? "Screening…" : "Pending";
       const detail = isDone
         ? buildResultDetailHTML(item.result, `batch-${item.originalIndex}-`)
         : item.status === "error"
           ? `<div class="batch-error-detail">
-               <p>${item.error || "Screening failed."}</p>
+               <p>${escapeHtml(item.error) || "Screening failed."}</p>
                <button type="button" class="export-btn" onclick="event.stopPropagation(); retryBatchItem(${item.originalIndex})">
                  <i class="fa-solid fa-rotate-right"></i> Retry
                </button>
@@ -1490,7 +1579,7 @@ BSc Computer Science — University of Lahore (2019)`;
       return `
         <tr class="batch-row ${item.status}${isExpanded ? " expanded" : ""}" id="batch-row-${item.originalIndex}" onclick="toggleBatchRow(${item.originalIndex})">
           <td>${isDone ? ++rank : "—"}</td>
-          <td>${item.name}</td>
+          <td>${escapeHtml(item.name)}</td>
           <td>${scoreCell}</td>
           <td>${verdictCell}</td>
           <td><i class="fa-solid fa-chevron-down"></i></td>
@@ -1568,20 +1657,26 @@ BSc Computer Science — University of Lahore (2019)`;
   let historyEntries = [];
   let expandedHistoryRows = new Set();
 
+  function anonymousIdParam(anonymousId) {
+    return anonymousId ? `anonymous_id=${encodeURIComponent(anonymousId)}` : "";
+  }
   async function loadHistoryRequest(anonymousId, limit = 20) {
-    const res = await fetch(`${API_BASE}/history?anonymous_id=${encodeURIComponent(anonymousId)}&limit=${limit}`);
+    const params = [anonymousIdParam(anonymousId), `limit=${limit}`].filter(Boolean).join("&");
+    const res = await authFetch(`${API_BASE}/history?${params}`);
     if (!res.ok) throw new Error("Failed to load history");
     return res.json();
   }
   async function deleteHistoryRequest(id, anonymousId) {
-    await fetch(`${API_BASE}/history/${id}?anonymous_id=${encodeURIComponent(anonymousId)}`, { method: "DELETE" });
+    const params = anonymousIdParam(anonymousId);
+    await authFetch(`${API_BASE}/history/${id}${params ? `?${params}` : ""}`, { method: "DELETE" });
   }
   async function clearHistoryRequest(anonymousId) {
-    await fetch(`${API_BASE}/history?anonymous_id=${encodeURIComponent(anonymousId)}`, { method: "DELETE" });
+    const params = anonymousIdParam(anonymousId);
+    await authFetch(`${API_BASE}/history${params ? `?${params}` : ""}`, { method: "DELETE" });
   }
 
   async function loadHistory() {
-    if (!ANONYMOUS_ID) {
+    if (!ANONYMOUS_ID && !AUTH_TOKEN) {
       historyEntries = [];
       renderHistory("History isn't available in this browser.");
       return;
@@ -1614,9 +1709,9 @@ BSc Computer Science — University of Lahore (2019)`;
       return `
         <tr class="batch-row${isExpanded ? " expanded" : ""}" onclick="toggleHistoryRow(${entry.id})">
           <td>${new Date(entry.created_at).toLocaleString()}</td>
-          <td>${entry.job_description.slice(0, 60)}${entry.job_description.length > 60 ? "…" : ""}</td>
+          <td>${escapeHtml(entry.job_description.slice(0, 60))}${entry.job_description.length > 60 ? "…" : ""}</td>
           <td>${entry.result.score}</td>
-          <td>${entry.result.verdict || ""}</td>
+          <td>${escapeHtml(entry.result.verdict)}</td>
           <td><i class="fa-solid fa-chevron-down"></i></td>
         </tr>
         <tr class="batch-detail-row" id="history-detail-row-${entry.id}" ${isExpanded ? "" : "hidden"}>
@@ -1649,6 +1744,100 @@ BSc Computer Science — University of Lahore (2019)`;
     historyEntries = [];
     expandedHistoryRows.clear();
     renderHistory("No screenings yet — analyze a resume to start building history.");
+  }
+
+  async function signupRequest(email, password, anonymousId) {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, anonymous_id: anonymousId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Could not create account");
+    }
+    return res.json();
+  }
+
+  async function loginRequest(email, password) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Could not log in");
+    }
+    return res.json();
+  }
+
+  let authMode = "login"; // "login" | "signup"
+
+  function updateAuthUI() {
+    const loggedIn = !!CURRENT_USER;
+    document.getElementById("nav-auth-btn").hidden = loggedIn;
+    document.getElementById("nav-logout-btn").hidden = !loggedIn;
+    const emailEl = document.getElementById("nav-user-email");
+    emailEl.hidden = !loggedIn;
+    emailEl.textContent = loggedIn ? truncateEmail(CURRENT_USER.email) : "";
+  }
+
+  function truncateEmail(email) {
+    return email.length > 22 ? email.slice(0, 19) + "…" : email;
+  }
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    document.getElementById("auth-panel-title").textContent = mode === "signup" ? "Sign up" : "Log in";
+    document.getElementById("auth-submit-btn").textContent = mode === "signup" ? "Sign up" : "Log in";
+    document.getElementById("auth-toggle-mode").innerHTML = mode === "signup"
+      ? `Already have an account? <a href="#" onclick="setAuthMode('login'); return false;">Log in</a>`
+      : `Don't have an account? <a href="#" onclick="setAuthMode('signup'); return false;">Sign up</a>`;
+    document.getElementById("auth-error").hidden = true;
+  }
+
+  function toggleAuthPanel() {
+    const panel = document.getElementById("auth-panel");
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    if (opening) {
+      setAuthMode("login");
+      panel.classList.add("visible");
+      panel.scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  function onAuthSuccess(data) {
+    setAuthToken(data.token);
+    AUTH_TOKEN = data.token;
+    CURRENT_USER = data.user;
+    updateAuthUI();
+    document.getElementById("auth-panel").hidden = true;
+    document.getElementById("auth-form").reset();
+    if (!document.getElementById("history-panel").hidden) loadHistory();
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    const email = document.getElementById("auth-email").value.trim();
+    const password = document.getElementById("auth-password").value;
+    const errorEl = document.getElementById("auth-error");
+    errorEl.hidden = true;
+    const btn = document.getElementById("auth-submit-btn");
+    btn.disabled = true;
+    try {
+      const data = authMode === "signup"
+        ? await signupRequest(email, password, ANONYMOUS_ID)
+        : await loginRequest(email, password);
+      onAuthSuccess(data);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+    return false;
   }
 
   function createPdfWriters() {

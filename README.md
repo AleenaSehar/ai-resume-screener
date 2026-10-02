@@ -21,6 +21,7 @@ Paste a job description and a resume (as text or a PDF upload) → get an instan
 - **Export the report as a PDF** — one click, generated client-side
 - **Batch screening** — upload up to 5 resume PDFs at once, get a ranked results table, export one combined PDF report
 - **Screening history** — every analysis is saved (per-browser, no login needed) and viewable/deletable from the History panel
+- **Optional email+password accounts** — sign up to claim your browser's existing history onto a durable account; signing in is never required to use the tool
 - Clean dark UI, fully responsive
 
 ---
@@ -141,6 +142,38 @@ An alternative `render.yaml` is also included if you'd rather use Render (requir
 
 ## API Reference
 
+### `POST /auth/signup`
+
+Create an account. Email+password, no card/email-provider dependency. If an
+`anonymous_id` is included, that browser's existing screening history is
+automatically claimed onto the new account.
+
+**Request body:**
+```json
+{ "email": "you@example.com", "password": "at least 8 characters", "anonymous_id": "optional" }
+```
+**Response:** `{ "token": "...", "user": { "id": 1, "email": "you@example.com" } }`
+
+Returns `409` if the email is already registered, `400` for a weak password,
+`503` if auth isn't configured (`JWT_SECRET`/`DATABASE_URL` not set).
+
+### `POST /auth/login`
+
+**Request body:** `{ "email": "...", "password": "..." }`. Same response shape
+as signup. Returns `401 "Invalid email or password"` for either a wrong
+password or an unregistered email — deliberately identical, to avoid leaking
+which one it was.
+
+### `GET /auth/me`
+
+Returns `{ "id": 1, "email": "..." }` for the current `Authorization: Bearer`
+token, or `401` if it's missing/invalid/expired.
+
+> Pass the token from signup/login as `Authorization: Bearer <token>` on any
+> request below to act as that account instead of an anonymous browser. No
+> token is ever required — every endpoint keeps working with just
+> `anonymous_id`, exactly as before accounts existed.
+
 ### `POST /screen`
 
 Analyze how well a resume matches a job description. Provide the resume as
@@ -168,8 +201,9 @@ body limit once base64-encoded). Gemini reads the PDF directly — there's no
 separate text-extraction step.
 
 Optionally include `"anonymous_id": "string"` to save the result to screening
-history (see below). Omit it and the request behaves exactly as before —
-nothing is saved.
+history (see below), and/or an `Authorization: Bearer <token>` header to save
+it to your account instead. Omit both and the request behaves exactly as
+before — nothing is saved.
 
 **Response:**
 ```json
@@ -216,6 +250,7 @@ Deletes all screenings for that `anonymous_id`.
 | `GEMINI_API_KEY`     | Your Google Gemini API key                              |
 | `ALLOWED_ORIGINS`    | Comma-separated list of origins allowed to call the API |
 | `DATABASE_URL`       | Optional. Postgres connection string for screening history — the app works fully without it (history just won't save) |
+| `JWT_SECRET`         | Optional. Enables email+password accounts — requires `DATABASE_URL` too. Generate with `python -c "import secrets; print(secrets.token_hex(32))"` |
 
 Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 
@@ -234,7 +269,7 @@ Get a free key (no credit card required) at: https://aistudio.google.com/apikey
 - [x] Export results as PDF report
 - [x] Batch screening (multiple resumes vs one JD)
 - [x] Database storage for screening history
-- [ ] Auth + user accounts
+- [x] Auth + user accounts
 - [ ] Chrome extension
 
 ---
